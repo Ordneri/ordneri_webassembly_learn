@@ -18,6 +18,6 @@ npm install
 node run.js hello
 ```
 - 注意
-  - 项目中部分网页要在控制台运行相关函数，详见[教程](./hello_world/README.md)
+  - 项目中部分网页要在控制台运行相关函数，详见[教程](./note/webassembly.md)
 ## 教程
 - [note/webassembly.md](./note/webassembly.md)
