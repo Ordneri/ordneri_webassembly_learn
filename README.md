@@ -20,4 +20,4 @@ node run.js hello
 - 注意
   - 项目中部分网页要在控制台运行相关函数，详见[教程](./hello_world/README.md)
 ## 教程
-- [hello world](./hello_world/README.md)
+- [note/webassembly.md](./note/webassembly.md)
