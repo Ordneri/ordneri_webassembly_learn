@@ -96,7 +96,7 @@ Module.onRuntimeInitialized = function() {
 
 ### 编译目标
 
-> Emscripten早于WebAssembly所以，WebAssembly前Emscripten长期用于编译asm.js
+> Emscripten早于WebAssembly，所以WebAssembly诞生前Emscripten长期用于编译asm.js
 
 若要编译为asm，使用 `-s WASM=0`
 
@@ -223,4 +223,99 @@ EM_PORT_API(void) calladd()
 em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 ```
 
+## 单向透明内存
 
+### 可用内存大小
+
+当前版本的Emscripten(4.0.23)中，指针类型为int32，即最大可用内存为2GB - 1，未定义的情况下（Emscripten 4.0.23），栈容量（STACK_SIZE）为64KB，堆容量16MB，设置`ALLOW_MEMORY_GROWTH`后，`MAXIMUM_MEMORY`生效，内存可扩展至2GB。
+
+> [STACK_SIZE](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#stack-size "Permalink to this headline")
+> ----------------------------------------------------------------------------------------------------------------------------------------
+> 
+> 总堆栈大小。无法扩大堆栈，因此该值必须足够大以满足程序的要求。如果断言打开，我们将在不超过此值的情况下断言，否则，它会静默失败。
+> 
+> 默认值：64*1024
+> 
+> --------------
+> 
+> [INITIAL_HEAP](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#initial-heap)
+> ------------
+> 
+> 程序可用的初始堆内存量。这是通过 sbrk、malloc 和 new 可用于动态分配的内存区域。
+> 
+> 与 INITIAL_MEMORY 不同，此设置允许程序内存的静态区域和动态区域独立增长。在大多数情况下，我们建议使用此设置而不是 INITIAL_MEMORY。但是，此设置不适用于导入的内存（例如，当使用动态链接时）。
+> 
+> 默认值：16777216
+> 
+> --------------
+> 
+> ## [INITIAL_MEMORY](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#initial-memory)
+> 
+> 要使用的初始内存量。使用超过此内存量的内存会导致我们扩展堆，这对于类型化数组来说可能很昂贵：在这种情况下，我们需要将旧堆复制到新堆中。如果设置了 ALLOW_MEMORY_GROWTH，则此初始内存量可以在以后增加；如果没有，那么它就是最终的总内存量。
+> 
+> 默认情况下，此值是根据 INITIAL_HEAP、STACK_SIZE 以及输入模块中静态数据的尺寸计算得出的。
+> 
+> （此选项以前称为 TOTAL_MEMORY。）
+> 
+> 默认值：-1
+> 
+> --------------
+> 
+> ## [MAXIMUM_MEMORY](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#maximum-memory)
+> 
+> 设置 wasm 模块中内存的最大尺寸（以字节为单位）。这仅在设置 ALLOW_MEMORY_GROWTH 时才相关，因为如果没有增长，INITIAL_MEMORY 的大小无论如何都是最终内存的大小。
+> 
+> 请注意，这里的默认值为 2GB，这意味着默认情况下，如果您启用内存增长，那么我们可以增长到 2GB，但不会更高。2GB 是一个自然的限制，原因有以下几个
+> 
+> > * 如果最大堆大小超过 2GB，则指针必须在 JavaScript 中无符号，这会增加代码大小。我们不希望内存增长构建更大，除非有人明确选择加入到 >2GB+ 堆中。
+> > 
+> > * 历史上，没有 VM 支持超过 2GB+，直到最近（2020 年 3 月）才开始出现支持。由于支持有限，对于人们来说，选择加入到 >2GB+ 堆中比获得可能不适用于所有 VM 的构建更安全。
+> 
+> 要使用超过 2GB，请将其设置为更高的值，例如 4GB。
+> 
+> （此选项以前称为 WASM_MEM_MAX 和 BINARYEN_MEM_MAX。）
+> 
+> 默认值：2147483648
+> 
+> ------------------- 
+> 
+> ## [ALLOW_MEMORY_GROWTH](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#allow-memory-growth)
+> 
+>  如果为 false，如果我们尝试分配超过我们所能分配的内存（INITIAL_MEMORY），我们就会中止并报错。如果为 true，我们将在运行时无缝动态地增长内存数组。有关 chrome 中内存增长性能的信息，请参见 https://code.google.com/p/v8/issues/detail?id=3907。请注意，增长内存意味着我们替换 JS 类型化数组视图，因为一旦创建，它们就无法调整大小。（在 wasm 中，我们可以增长 Memory，但仍然需要为 JS 创建新的视图。）在该选项上设置此选项将禁用 ABORTING_MALLOC，换句话说，ALLOW_MEMORY_GROWTH 使完全标准的行为生效，即 malloc 在失败时返回 0，并且能够根据需要从系统中分配更多内存。
+> 
+> 默认值：false
+
+### 获取和设置值
+
+Emscripten推荐使用 [`getValue(ptr, type)`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#getValue "getValue") 和 [`setValue(ptr, value, type)`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#setValue "setValue") 访问内存，第一个参数是一个指针（表示内存地址的数字）。 `type` 必须是 LLVM IR 类型，分别是 `i8`、 `i16`、 `i32`、 `i64`、 `float`、 `double` 或指针类型，如 `i8*`（或只是 `*`）。
+
+<span style="color:red;font-weight:bold;">注意，`getValue(ptr, type)`和`setValue(ptr, value, type)`需要在编译时导出，参见<a href="#preamble_js_and_exported_runtime_methods" style="color:inherit">[EXPORTED_RUNTIME_METHODS]</a></span>
+
+### 读写内存
+
+[Emscripten 内存表示](https://emscripten.webassembly.net.cn/docs/porting/emscripten-runtime-environment.html#emscripten-memory-model) 使用类型化数组缓冲区 (`ArrayBuffer`) 来表示内存，其中不同的视图可以访问不同的类型。用于访问不同类型内存的视图如下。
+
+| 类型      | 解释           |
+| ------- | ------------ |
+| HEAP8   | 8 位有符号内存的视图  |
+| HEAP16  | 16 位有符号内存的视图 |
+| HEAP32  | 32 位有符号内存的视图 |
+| HEAPU8  | 8 位无符号内存的视图  |
+| HEAPU16 | 16 位无符号内存的视图 |
+| HEAPU32 | 32 位无符号内存的视图 |
+| HEAPF32 | 32 位浮点内存的视图  |
+| HEAPF64 | 64 位浮点内存的视图  |
+
+ 
+
+## 补充
+
+## <span id="preamble_js_and_exported_runtime_methods">preamble.js 与 EXPORTED_RUNTIME_METHODS</span>
+
+在 [preamble.js](https://github.com/emscripten-core/emscripten/blob/main/src/preamble.js) 中的 JavaScript API 提供了与编译后的 C 代码进行交互的编程访问方式，包括：调用编译后的 C 函数、访问内存、将指针转换为 JavaScript `Strings` 和 `Strings` 到指针（使用不同的编码/格式）以及其他便捷函数。
+
+我们称之为“`preamble.js`”，因为 Emscripten 的输出 JS 在高级别上包含序言（来自 `src/preamble.js`），然后是编译后的代码，最后是尾声。（更详细地说，序言包含实用函数和设置，而尾声连接事物并处理运行应用程序。）
+
+序言代码包含在输出的 JS 中，然后由编译器与您添加的任何 `--pre-js` 和 `--post-js` 文件以及来自任何 JavaScript 库 (`--js-library`) 的代码一起进行优化。这意味着您可以直接调用序言中的方法，编译器会看到您需要它们，并且不会将其删除为未使用的代码。
+
+如果您想从编译器无法看到的某个地方（例如 HTML 上的另一个脚本标签）调用序言方法，则需要将其**导出**。为此，请将它们添加到 `EXPORTED_RUNTIME_METHODS` 中（例如，`-sEXPORTED_RUNTIME_METHODS=ccall,cwrap` 将导出 `ccall` 和 `cwrap`）。导出后，您可以在 `Module` 对象上访问它们（例如，作为 `Module.ccall`）。
