@@ -229,8 +229,7 @@ em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 
 当前版本的Emscripten(4.0.23)中，指针类型为int32，即最大可用内存为2GB - 1，未定义的情况下（Emscripten 4.0.23），栈容量（STACK_SIZE）为64KB，堆容量16MB，设置`ALLOW_MEMORY_GROWTH`后，`MAXIMUM_MEMORY`生效，内存可扩展至2GB。
 
-> [STACK_SIZE](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#stack-size "Permalink to this headline")
-> ----------------------------------------------------------------------------------------------------------------------------------------
+> #### [STACK_SIZE](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#stack-size "Permalink to this headline")
 > 
 > 总堆栈大小。无法扩大堆栈，因此该值必须足够大以满足程序的要求。如果断言打开，我们将在不超过此值的情况下断言，否则，它会静默失败。
 > 
@@ -238,8 +237,7 @@ em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 > 
 > --------------
 > 
-> [INITIAL_HEAP](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#initial-heap)
-> ------------
+> #### [INITIAL_HEAP](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#initial-heap)
 > 
 > 程序可用的初始堆内存量。这是通过 sbrk、malloc 和 new 可用于动态分配的内存区域。
 > 
@@ -249,7 +247,7 @@ em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 > 
 > --------------
 > 
-> ## [INITIAL_MEMORY](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#initial-memory)
+> #### [INITIAL_MEMORY](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#initial-memory)
 > 
 > 要使用的初始内存量。使用超过此内存量的内存会导致我们扩展堆，这对于类型化数组来说可能很昂贵：在这种情况下，我们需要将旧堆复制到新堆中。如果设置了 ALLOW_MEMORY_GROWTH，则此初始内存量可以在以后增加；如果没有，那么它就是最终的总内存量。
 > 
@@ -261,7 +259,7 @@ em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 > 
 > --------------
 > 
-> ## [MAXIMUM_MEMORY](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#maximum-memory)
+> #### [MAXIMUM_MEMORY](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#maximum-memory)
 > 
 > 设置 wasm 模块中内存的最大尺寸（以字节为单位）。这仅在设置 ALLOW_MEMORY_GROWTH 时才相关，因为如果没有增长，INITIAL_MEMORY 的大小无论如何都是最终内存的大小。
 > 
@@ -279,7 +277,7 @@ em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 > 
 > ------------------- 
 > 
-> ## [ALLOW_MEMORY_GROWTH](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#allow-memory-growth)
+> #### [ALLOW_MEMORY_GROWTH](https://emscripten.webassembly.net.cn/docs/tools_reference/settings_reference.html#allow-memory-growth)
 > 
 >  如果为 false，如果我们尝试分配超过我们所能分配的内存（INITIAL_MEMORY），我们就会中止并报错。如果为 true，我们将在运行时无缝动态地增长内存数组。有关 chrome 中内存增长性能的信息，请参见 https://code.google.com/p/v8/issues/detail?id=3907。请注意，增长内存意味着我们替换 JS 类型化数组视图，因为一旦创建，它们就无法调整大小。（在 wasm 中，我们可以增长 Memory，但仍然需要为 JS 创建新的视图。）在该选项上设置此选项将禁用 ABORTING_MALLOC，换句话说，ALLOW_MEMORY_GROWTH 使完全标准的行为生效，即 malloc 在失败时返回 0，并且能够根据需要从系统中分配更多内存。
 > 
@@ -306,7 +304,7 @@ Emscripten推荐使用 [`getValue(ptr, type)`](https://emscripten.webassembly.
 | HEAPF32 | 32 位浮点内存的视图  |
 | HEAPF64 | 64 位浮点内存的视图  |
 
- 
+
 
 ## 补充
 
