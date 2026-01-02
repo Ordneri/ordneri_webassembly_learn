@@ -10,11 +10,11 @@ EM_PORT_API(void) free_array_ptr(int *ptr){
     free(ptr);
 };
 
-EM_PORT_API(void) set_array_value(int *ptr, int index, int value){
+EM_PORT_API(void) set_array_item_value(int *ptr, int index, int value){
     ptr[index] = value;
 };
 
-EM_PORT_API(int) get_array_value(int *ptr, int index){
+EM_PORT_API(int) get_array_item_value(int *ptr, int index){
     return ptr[index];
 };
 

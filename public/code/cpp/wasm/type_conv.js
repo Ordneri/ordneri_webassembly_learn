@@ -274,6 +274,13 @@ function assert(condition, text) {
 
 // We used to include malloc/free by default in the past. Show a helpful error in
 // builds with assertions.
+function _malloc() {
+  abort('malloc() called but not included in the build - add `_malloc` to EXPORTED_FUNCTIONS');
+}
+function _free() {
+  // Show a helpful error since we used to include free by default in the past.
+  abort('free() called but not included in the build - add `_free` to EXPORTED_FUNCTIONS');
+}
 
 /**
  * Indicates whether filename is delivered via file protocol (as opposed to http/https)
@@ -484,7 +491,7 @@ function updateMemoryViews() {
   HEAP16 = new Int16Array(b);
   HEAPU8 = new Uint8Array(b);
   HEAPU16 = new Uint16Array(b);
-  Module['HEAP32'] = HEAP32 = new Int32Array(b);
+  HEAP32 = new Int32Array(b);
   HEAPU32 = new Uint32Array(b);
   HEAPF32 = new Float32Array(b);
   HEAPF64 = new Float64Array(b);
@@ -606,7 +613,7 @@ function createExportWrapper(name, nargs) {
 var wasmBinaryFile;
 
 function findWasmBinary() {
-  return locateFile('cmem.wasm');
+  return locateFile('type_conv.wasm');
 }
 
 function getBinarySync(file) {
@@ -907,19 +914,8 @@ async function createWasm() {
 
   
 
-  var __abort_js = () =>
-      abort('native code called abort()');
-
-  var abortOnCannotGrowMemory = (requestedSize) => {
-      abort(`Cannot enlarge memory arrays to size ${requestedSize} bytes (OOM). Either (1) compile with -sINITIAL_MEMORY=X with X higher than the current value ${HEAP8.length}, (2) compile with -sALLOW_MEMORY_GROWTH which allows increasing the size at runtime, or (3) if you want malloc to return NULL (0) instead of this abort, compile with -sABORTING_MALLOC=0`);
-    };
-  var _emscripten_resize_heap = (requestedSize) => {
-      var oldSize = HEAPU8.length;
-      // With CAN_ADDRESS_2GB or MEMORY64, pointers are already unsigned.
-      requestedSize >>>= 0;
-      abortOnCannotGrowMemory(requestedSize);
-    };
-
+  var printCharBuffers = [null,[],[]];
+  
   var UTF8Decoder = globalThis.TextDecoder && new TextDecoder();
   
   var findStringEnd = (heapOrArray, idx, maxBytesToRead, ignoreNul) => {
@@ -979,6 +975,25 @@ async function createWasm() {
       }
       return str;
     };
+  var printChar = (stream, curr) => {
+      var buffer = printCharBuffers[stream];
+      assert(buffer);
+      if (curr === 0 || curr === 10) {
+        (stream === 1 ? out : err)(UTF8ArrayToString(buffer));
+        buffer.length = 0;
+      } else {
+        buffer.push(curr);
+      }
+    };
+  
+  var flush_NO_FILESYSTEM = () => {
+      // flush anything remaining in the buffers during shutdown
+      _fflush(0);
+      if (printCharBuffers[1].length) printChar(1, 10);
+      if (printCharBuffers[2].length) printChar(2, 10);
+    };
+  
+  
   
     /**
      * Given a pointer 'ptr' to a null-terminated UTF8-encoded string in the
@@ -1004,43 +1019,6 @@ async function createWasm() {
         return ret;
       },
   };
-  var _fd_close = (fd) => {
-      abort('fd_close called without SYSCALLS_REQUIRE_FILESYSTEM');
-    };
-
-  var INT53_MAX = 9007199254740992;
-  
-  var INT53_MIN = -9007199254740992;
-  var bigintToI53Checked = (num) => (num < INT53_MIN || num > INT53_MAX) ? NaN : Number(num);
-  function _fd_seek(fd, offset, whence, newOffset) {
-    offset = bigintToI53Checked(offset);
-  
-  
-      return 70;
-    ;
-  }
-
-  var printCharBuffers = [null,[],[]];
-  
-  var printChar = (stream, curr) => {
-      var buffer = printCharBuffers[stream];
-      assert(buffer);
-      if (curr === 0 || curr === 10) {
-        (stream === 1 ? out : err)(UTF8ArrayToString(buffer));
-        buffer.length = 0;
-      } else {
-        buffer.push(curr);
-      }
-    };
-  
-  var flush_NO_FILESYSTEM = () => {
-      // flush anything remaining in the buffers during shutdown
-      _fflush(0);
-      if (printCharBuffers[1].length) printChar(1, 10);
-      if (printCharBuffers[2].length) printChar(2, 10);
-    };
-  
-  
   var _fd_write = (fd, iov, iovcnt, pnum) => {
       // hack to support printf in SYSCALLS_REQUIRE_FILESYSTEM=0
       var num = 0;
@@ -1056,8 +1034,6 @@ async function createWasm() {
       HEAPU32[((pnum)>>2)] = num;
       return 0;
     };
-
-
 // End JS library code
 
 // include: postlibrary.js
@@ -1108,8 +1084,6 @@ Module['FS_createPreloadedFile'] = FS.createPreloadedFile;
 }
 
 // Begin runtime exports
-  Module['setValue'] = setValue;
-  Module['getValue'] = getValue;
   var missingLibrarySymbols = [
   'writeI53ToI64',
   'writeI53ToI64Clamped',
@@ -1121,6 +1095,7 @@ Module['FS_createPreloadedFile'] = FS.createPreloadedFile;
   'convertI32PairToI53',
   'convertI32PairToI53Checked',
   'convertU32PairToI53',
+  'bigintToI53Checked',
   'stackAlloc',
   'getTempRet0',
   'setTempRet0',
@@ -1128,6 +1103,7 @@ Module['FS_createPreloadedFile'] = FS.createPreloadedFile;
   'zeroMemory',
   'exitJS',
   'getHeapMax',
+  'abortOnCannotGrowMemory',
   'growMemory',
   'withStackSave',
   'strError',
@@ -1310,6 +1286,7 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'HEAPU8',
   'HEAP16',
   'HEAPU16',
+  'HEAP32',
   'HEAPU32',
   'HEAP64',
   'HEAPU64',
@@ -1317,11 +1294,9 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'checkStackCookie',
   'INT53_MAX',
   'INT53_MIN',
-  'bigintToI53Checked',
   'stackSave',
   'stackRestore',
   'ptrToString',
-  'abortOnCannotGrowMemory',
   'ENV',
   'ERRNO_CODES',
   'DNS',
@@ -1339,6 +1314,8 @@ missingLibrarySymbols.forEach(missingLibrarySymbol)
   'addOnPostRun',
   'freeTableIndexes',
   'functionsInTableMap',
+  'setValue',
+  'getValue',
   'PATH',
   'PATH_FS',
   'UTF8Decoder',
@@ -1524,13 +1501,8 @@ function checkIncomingModuleAPI() {
 }
 
 // Imports from the Wasm binary.
-var _get_array_ptr = Module['_get_array_ptr'] = makeInvalidEarlyAccess('_get_array_ptr');
-var _malloc = Module['_malloc'] = makeInvalidEarlyAccess('_malloc');
-var _free_array_ptr = Module['_free_array_ptr'] = makeInvalidEarlyAccess('_free_array_ptr');
-var _free = Module['_free'] = makeInvalidEarlyAccess('_free');
-var _set_array_item_value = Module['_set_array_item_value'] = makeInvalidEarlyAccess('_set_array_item_value');
-var _get_array_item_value = Module['_get_array_item_value'] = makeInvalidEarlyAccess('_get_array_item_value');
-var _get_array_item_ptr = Module['_get_array_item_ptr'] = makeInvalidEarlyAccess('_get_array_item_ptr');
+var _print_int = Module['_print_int'] = makeInvalidEarlyAccess('_print_int');
+var _print_float = Module['_print_float'] = makeInvalidEarlyAccess('_print_float');
 var _fflush = makeInvalidEarlyAccess('_fflush');
 var _strerror = makeInvalidEarlyAccess('_strerror');
 var _emscripten_stack_get_end = makeInvalidEarlyAccess('_emscripten_stack_get_end');
@@ -1545,13 +1517,8 @@ var __indirect_function_table = makeInvalidEarlyAccess('__indirect_function_tabl
 var wasmMemory = makeInvalidEarlyAccess('wasmMemory');
 
 function assignWasmExports(wasmExports) {
-  assert(typeof wasmExports['get_array_ptr'] != 'undefined', 'missing Wasm export: get_array_ptr');
-  assert(typeof wasmExports['malloc'] != 'undefined', 'missing Wasm export: malloc');
-  assert(typeof wasmExports['free_array_ptr'] != 'undefined', 'missing Wasm export: free_array_ptr');
-  assert(typeof wasmExports['free'] != 'undefined', 'missing Wasm export: free');
-  assert(typeof wasmExports['set_array_item_value'] != 'undefined', 'missing Wasm export: set_array_item_value');
-  assert(typeof wasmExports['get_array_item_value'] != 'undefined', 'missing Wasm export: get_array_item_value');
-  assert(typeof wasmExports['get_array_item_ptr'] != 'undefined', 'missing Wasm export: get_array_item_ptr');
+  assert(typeof wasmExports['print_int'] != 'undefined', 'missing Wasm export: print_int');
+  assert(typeof wasmExports['print_float'] != 'undefined', 'missing Wasm export: print_float');
   assert(typeof wasmExports['fflush'] != 'undefined', 'missing Wasm export: fflush');
   assert(typeof wasmExports['strerror'] != 'undefined', 'missing Wasm export: strerror');
   assert(typeof wasmExports['emscripten_stack_get_end'] != 'undefined', 'missing Wasm export: emscripten_stack_get_end');
@@ -1563,13 +1530,8 @@ function assignWasmExports(wasmExports) {
   assert(typeof wasmExports['emscripten_stack_get_current'] != 'undefined', 'missing Wasm export: emscripten_stack_get_current');
   assert(typeof wasmExports['memory'] != 'undefined', 'missing Wasm export: memory');
   assert(typeof wasmExports['__indirect_function_table'] != 'undefined', 'missing Wasm export: __indirect_function_table');
-  _get_array_ptr = Module['_get_array_ptr'] = createExportWrapper('get_array_ptr', 0);
-  _malloc = Module['_malloc'] = createExportWrapper('malloc', 1);
-  _free_array_ptr = Module['_free_array_ptr'] = createExportWrapper('free_array_ptr', 1);
-  _free = Module['_free'] = createExportWrapper('free', 1);
-  _set_array_item_value = Module['_set_array_item_value'] = createExportWrapper('set_array_item_value', 3);
-  _get_array_item_value = Module['_get_array_item_value'] = createExportWrapper('get_array_item_value', 2);
-  _get_array_item_ptr = Module['_get_array_item_ptr'] = createExportWrapper('get_array_item_ptr', 2);
+  _print_int = Module['_print_int'] = createExportWrapper('print_int', 1);
+  _print_float = Module['_print_float'] = createExportWrapper('print_float', 1);
   _fflush = createExportWrapper('fflush', 1);
   _strerror = createExportWrapper('strerror', 1);
   _emscripten_stack_get_end = wasmExports['emscripten_stack_get_end'];
@@ -1584,14 +1546,6 @@ function assignWasmExports(wasmExports) {
 }
 
 var wasmImports = {
-  /** @export */
-  _abort_js: __abort_js,
-  /** @export */
-  emscripten_resize_heap: _emscripten_resize_heap,
-  /** @export */
-  fd_close: _fd_close,
-  /** @export */
-  fd_seek: _fd_seek,
   /** @export */
   fd_write: _fd_write
 };

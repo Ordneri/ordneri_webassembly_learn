@@ -304,7 +304,133 @@ Emscripten推荐使用 [`getValue(ptr, type)`](https://emscripten.webassembly.
 | HEAPF32 | 32 位浮点内存的视图  |
 | HEAPF64 | 64 位浮点内存的视图  |
 
+<span style="color:#4f7;">对内存进行读写时，需要通过<a href="#preamble_js_and_exported_runtime_methods" style="color:inherit">[EXPORTED_RUNTIME_METHODS]</a>导出相应类型视图，如`-sEXPORTED_RUNTIME_METHODS=HEAP32`。</span>
 
+<span style="color:#4f7;">使用时，注意内存地址与视图元素索引的转换，如`HEAP32`需要将内存地址除以4才能得到对应的元素（使用类似`ptr>>2`的表达式记得加括号，因为`+`/`-`优先级大于`>>`/`<<`）</span>
+
+相关使用示例详见<a href="#heap_malloc_free_example" style="color:inherit">"在JavaScript中申请内存"</a>，
+
+### 数据交换
+
+<span style="color:#4f7;">JavaScript与C之间只能通过number进行参数何返回值的传递，number传入时，若C中类型为int则向0取整，若为float则可能造成精度丢失。</span>
+
+```c++
+//type_conv.cpp
+#include "../include/ems_export.h"
+#include <stdio.h>
+EM_PORT_API(void) print_int(int value){
+    printf("int value: %d\n", value);
+}
+EM_PORT_API(void) print_float(float value){
+    printf("float value: %f\n", value);
+}
+```
+
+```javascript
+//type_conv_js.js
+Module = {}
+Module.onRuntimeInitialized = function() {
+  console.log(`print_int(123):`);
+  _print_int(123)
+  console.log(`print_int(23.45):`);
+  _print_int(23.45)
+  console.log(`print_float(123.456):`);
+  _print_float(123.456)
+  console.log(`print_float(1000000.23456789):`);
+  _print_float(1000000.23456789)
+  console.log(`print_float():`);
+  _print_float()
+  console.log(`print_int():`);
+  _print_int()
+} 
+```
+
+结果
+
+![34232e1a-25fc-4de1-ad02-6378a7fef588](./images/34232e1a-25fc-4de1-ad02-6378a7fef588.png)
+
+### 通过内存交换数据
+
+可通过传递数组指针来传递数据，通过
+
+### <span id="heap_malloc_free_example">在JavaScript中申请内存</span>
+
+可通过在编译时添加`-sEXPORTED_FUNCTIONS=_malloc,_free`来暴露malloc与free函数。
+
+```c++
+//cmem.cpp
+#include "../include/ems_export.h"
+#include <malloc.h>
+
+EM_PORT_API(int *) get_array_ptr(){
+    return (int *) malloc(10 * sizeof(int));
+};
+
+EM_PORT_API(void) free_array_ptr(int *ptr){
+    free(ptr);
+};
+
+EM_PORT_API(void) set_array_item_value(int *ptr, int index, int value){
+    ptr[index] = value;
+};
+
+EM_PORT_API(int) get_array_item_value(int *ptr, int index){
+    return ptr[index];
+};
+
+EM_PORT_API(int *) get_array_item_ptr(int *ptr, int index){
+    return &ptr[index];
+}; 
+```
+
+编译
+
+```batch
+em++ cpp/src/cmem.cpp -o cpp/wasm/cmem.js -sEXPORTED_RUNTIME_METHODS=setValue,getValue,HEAP32 -sEXPORTED_FUNCTIONS=_malloc,_free
+```
+
+在js中调用
+
+```javascript
+//cmem_js.js
+Module.onRuntimeInitialized = function() {
+  console.log(`new int array in js [int_arr_ptr_js]`);
+  var int_arr_ptr_js = _malloc(10 * 4);
+  console.log("int_arr_ptr_js: "+int_arr_ptr_js.toString(16));
+  console.log(`set value by HEAP32[(int_arr_ptr_js >> 2) + i] = i + 1;`);
+  for(let i = 0;i<10;i++){
+    HEAP32[(int_arr_ptr_js >> 2) + i] = i + 1;
+  }
+  console.log(`get item ptr by c function [item_3_ptr]`);
+  let item_3_ptr = _get_array_item_ptr(int_arr_ptr_js,3);
+  console.log(`int_arr_ptr_js[3] is: ${item_3_ptr.toString(16)}`);
+
+  console.log(`get/set item value by empscripten method getValue/setValue [int_arr_ptr_js[3](${getValue(item_3_ptr)}) = 100]`);
+  setValue(item_3_ptr,100);
+
+
+  console.log(`get item ptr by calculate [item_3_ptr = int_arr_ptr_js + 3 * 4]`);
+  item_3_ptr = int_arr_ptr_js + 3 * 4;
+
+
+  console.log(`get/set item value by ptr in js [HEAP32[item_3_ptr >> 2](${HEAP32[item_3_ptr >> 2]}) = 200]`);
+  HEAP32[item_3_ptr >> 2] = 200;
+
+
+  console.log(`get/set item value by c function [_get_array_item_value(int_arr_ptr_js),3)(*${_get_array_item_ptr(int_arr_ptr_js,3).toString(16)},${_get_array_item_value(int_arr_ptr_js,3)}) = 300]`);
+  _set_array_item_value(int_arr_ptr_js,3,300);
+
+  console.log(`free js created array ptr by c function [_free_array_ptr(int_arr_ptr_js(${int_arr_ptr_js.toString(16)}))]`);
+  _free_array_ptr(int_arr_ptr_js);
+
+  console.log(`free c created array ptr by empscripten method [_free(_get_array_ptr())]`);
+  _free(_get_array_ptr());
+}
+```
+
+运行结果: <i style="color:grey;">html页面仅引入了两个js文件，所以不展示代码</i>
+
+![00ff2fb9-75b2-4a20-b6be-48c8d6bf5878](./images/00ff2fb9-75b2-4a20-b6be-48c8d6bf5878.png)
 
 ## 补充
 
@@ -317,3 +443,5 @@ Emscripten推荐使用 [`getValue(ptr, type)`](https://emscripten.webassembly.
 序言代码包含在输出的 JS 中，然后由编译器与您添加的任何 `--pre-js` 和 `--post-js` 文件以及来自任何 JavaScript 库 (`--js-library`) 的代码一起进行优化。这意味着您可以直接调用序言中的方法，编译器会看到您需要它们，并且不会将其删除为未使用的代码。
 
 如果您想从编译器无法看到的某个地方（例如 HTML 上的另一个脚本标签）调用序言方法，则需要将其**导出**。为此，请将它们添加到 `EXPORTED_RUNTIME_METHODS` 中（例如，`-sEXPORTED_RUNTIME_METHODS=ccall,cwrap` 将导出 `ccall` 和 `cwrap`）。导出后，您可以在 `Module` 对象上访问它们（例如，作为 `Module.ccall`）。
+
+
