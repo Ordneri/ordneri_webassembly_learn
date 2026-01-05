@@ -1,22 +1,24 @@
 RM = Remove-Item 
-additional = ""
-all:
-	ifdef calwra
-		additional = additional -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall"]'
-	endif
-	ifdef fremal
-		additional = additional -s EXPORTED_RUNTIME_METHODS='["malloc","free"]'
-	endif
+additional ?= "" 
+
+simple = 
+
+ifdef calwra
+	simple += -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall"]'
+endif
+ifdef fremal
+	simple += -sEXPORTED_FUNCTIONS=_malloc,_free
+endif
 
 md.js md.wasm:
 	em++ -o md.js md.cpp -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall"]' -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1  -s 'EXPORT_NAME="mdModule"'
 
 
 cpp:cpp/src/$(name).cpp
-	em++ cpp/src/$(name).cpp -o cpp/wasm/$(name).js $(additional)
+	em++ cpp/src/$(name).cpp -o cpp/wasm/$(name).js $(additional) $(simple)
 
 cc:cpp/src/$(name).cc
-	emcc cpp/src/$(name).cc -o cpp/wasm/$(name).js $(additional)
+	emcc cpp/src/$(name).cc -o cpp/wasm/$(name).js $(additional) $(simple)
 
 
 clean:

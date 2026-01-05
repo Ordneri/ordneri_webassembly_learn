@@ -353,7 +353,7 @@ Module.onRuntimeInitialized = function() {
 
 可通过传递数组指针来传递数据，通过
 
-### <span id="heap_malloc_free_example">在JavaScript中申请内存</span>
+### 在JavaScript中申请内存<span id="heap_malloc_free_example"> </span>
 
 可通过在编译时添加`-sEXPORTED_FUNCTIONS=_malloc,_free`来暴露malloc与free函数。
 
@@ -432,6 +432,218 @@ Module.onRuntimeInitialized = function() {
 
 ![00ff2fb9-75b2-4a20-b6be-48c8d6bf5878](./images/00ff2fb9-75b2-4a20-b6be-48c8d6bf5878.png)
 
+### 字符串处理
+
+JavaScript 字符串 `someString` 可以使用 `ptr = stringToNewUTF8(someString)` 转换为 `char *`。(貌似并没有~~stringToNewUTF16~~等)<span style="color:red;font-weight:bold;">转换为指针会分配内存，需要通过调用 `free(ptr)` 来释放内存（在 JavaScript 侧为 `_free`）</span>
+
+除此之外还有以下方式处理字符串：
+
+#### `UTF8ToString`(_ptr_[, _maxBytesToRead_])
+
+给定一个指向 Emscripten HEAP 中以空终止的 UTF8 编码字符串的指针 `ptr`，返回该字符串的副本，作为 JavaScript `String` 对象。
+
+参数
+
+* **ptr** – 指向 Emscripten HEAP 中以空终止的 UTF8 编码字符串的指针。
+
+* **maxBytesToRead** – 一个可选的长度，指定要读取的最大字节数。可以省略此参数来扫描字符串，直到第一个 0 字节。如果传递了 maxBytesToRead，并且 `[ptr, ptr+maxBytesToReadr)` 中的字符串在中间包含一个空字节，则该字符串将在该字节索引处被截断（即 maxBytesToRead 不会生成一个长度精确为 `[ptr, ptr+maxBytesToRead)` 的字符串）请注意，频繁地使用 `UTF8ToString()`（带有和不带有 maxBytesToRead）可能会扰乱 JS JIT 优化，因此值得考虑始终如一地使用其中一种风格。
+
+返回值
+
+一个 JavaScript `String` 对象
+
+---
+
+#### `stringToUTF8`(_str_, _outPtr_, _maxBytesToWrite_)
+
+将给定的 JavaScript `String` 对象 `str` 复制到 Emscripten HEAP 的地址 `outPtr`，以空终止，并以 UTF8 形式编码。
+
+复制将最多需要 `str.length*4+1` 字节的 HEAP 空间。可以使用 `lengthBytesUTF8()` 函数计算对字符串进行编码所需的精确字节数（不包括空终止符）。
+
+参数
+
+* **str** (_String_) – 一个 JavaScript `String` 对象。
+
+* **outPtr** – 指向从 `str` 复制的数据的指针，以 UTF8 格式编码，并以空终止。
+
+* **maxBytesToWrite** – 此函数最多可以写入的字节数限制。如果字符串比此更长，则输出将被截断。即使发生截断，输出的字符串也将始终以空终止，只要 `maxBytesToWrite > 0`。
+
+---
+
+#### `UTF16ToString`(_ptr_)
+
+给定一个指向 Emscripten HEAP 中以空终止的 UTF16LE 编码字符串的指针 `ptr`，返回该字符串的副本，作为 JavaScript `String` 对象。
+
+参数
+
+* **ptr** – 指向 Emscripten HEAP 中以空终止的 UTF16LE 编码字符串的指针。
+
+返回值
+
+一个 JavaScript `String` 对象
+
+---
+
+#### `stringToUTF16`(_str_, _outPtr_, _maxBytesToWrite_)
+
+将给定的 JavaScript `String` 对象 `str` 复制到 Emscripten HEAP 的地址 `outPtr`，以空终止，并以 UTF16LE 形式编码。
+
+复制将需要 HEAP 中的 `(str.length+1)*2` 字节空间。
+
+参数
+
+* **str** (_String_) – 一个 JavaScript `String` 对象。
+
+* **outPtr** – 指向从 `str` 复制的数据的指针，以 UTF16LE 格式编码，并以空终止。
+
+* **maxBytesToWrite** – 此函数最多可以写入的字节数限制。如果字符串比此更长，则输出将被截断。即使发生截断，输出的字符串也将始终以空终止，只要 `maxBytesToWrite >= 2`，以便有空间用于空终止符。
+
+---
+
+#### `UTF32ToString`(_ptr)_
+
+给定一个指向 Emscripten HEAP 中以空终止的 UTF32LE 编码字符串的指针 `ptr`，返回该字符串的副本，作为 JavaScript `String` 对象。
+
+参数
+
+* **ptr** – 指向 Emscripten HEAP 中以空终止的 UTF32LE 编码字符串的指针。
+
+返回值
+
+一个 JavaScript `String` 对象。
+
+-------
+
+#### `stringToUTF32`(_str_, _outPtr_, _maxBytesToWrite_)
+
+将给定的 JavaScript `String` 对象 `str` 复制到 Emscripten HEAP 的地址 `outPtr`，以空终止，并以 UTF32LE 形式编码。
+
+复制将最多需要 `(str.length+1)*4` 字节的 HEAP 空间，但可以使用更少的空间，因为 `str.length` 不会返回字符串中字符的数量，而是返回字符串中 UTF-16 代码单元的数量。可以使用 `lengthBytesUTF32()` 函数计算对字符串进行编码所需的精确字节数（不包括空终止符）。
+
+参数
+
+* **str** (_String_) – 一个 JavaScript `String` 对象。
+
+* **outPtr** – 指向从 `str` 复制的数据的指针，以 UTF32LE 格式编码，并以空终止。
+
+* **maxBytesToWrite** – 此函数最多可以写入的字节数限制。如果字符串比此更长，则输出将被截断。即使发生截断，输出的字符串也将始终以空终止，只要 `maxBytesToWrite >= 4`，以便有空间用于空终止符。
+
+---
+
+#### `AsciiToString`(_ptr_)
+
+将 ASCII 或 Latin-1 编码字符串转换为 JavaScript String 对象。
+
+参数
+
+* **ptr** – 要转换为 `String` 的指针。
+
+返回值
+
+一个 JavaScript `String`，包含来自 `ptr` 的数据。
+
+返回值类型
+
+String
+
+---
+
+#### `intArrayFromString`(_stringy_, _dontAddNull_[, _length_])
+
+这会将 JavaScript 字符串转换为以 0 结尾的 C 行数字数组。
+
+参数
+
+* **stringy** (_String_) – 要转换的字符串。
+
+* **dontAddNull** (_bool_) – 如果 `true`，则新数组不会以零结尾。
+
+* **长度** – 数组的长度（可选）。
+
+返回值
+
+从 `stringy` 创建的数组。
+
+---
+
+#### `intArrayToString`(_array_)
+
+这将从一个以零结尾的 C 行数字数组创建一个 JavaScript 字符串。
+
+参数
+
+* **array** – 要转换的数组。
+
+返回值
+
+一个 `String`，包含 `array` 的内容。
+
+---
+
+#### `writeArrayToMemory`(_array_, _buffer_)
+
+将数组写入堆中的指定地址。请注意，在写入数组之前，应该为数组分配内存。
+
+参数
+
+* **array** – 要写入内存的数组。
+
+* **buffer** (_Number_) – `array` 要写入的地址（数字）。
+
+---
+
+举例：
+
+```c++
+//strings.cpp
+#include "../include/ems_export.h"
+#include <malloc.h>
+#include <stdio.h>
+#include <string.h>
+
+const char* str = "hello world";
+
+EM_PORT_API(void) print_str(char* str){
+    printf("str value: %s\n", str);
+}
+
+EM_PORT_API(void*) get_c_str(){
+    return (void *) str;
+}
+EM_PORT_API(void *) malloc_str(int len){
+    return (void *) malloc(len);
+}
+EM_PORT_API(int) get_c_str_len(void* str){
+    return strlen((char *) str);
+}
+```
+
+```javascript
+//strings_js.js
+Module = {}
+Module.onRuntimeInitialized = function() {
+  console.log(`get c str ptr: ${UTF8ToString(_get_c_str())}`);
+  let str_ptr = stringToNewUTF8("new str hello world from js，你好");
+  console.log(`print js new str by c function [_print_str(str_ptr)]`);
+  _print_str(str_ptr);
+
+  let js_str = "normal str hello world from js，你好";
+  let str_buffer_ptr = _malloc_str(100);
+  console.log(`str_buffer_ptr: ${str_buffer_ptr.toString(16)}`);
+  stringToUTF8(js_str,str_buffer_ptr,100);
+  console.log(`get c str len: ${_get_c_str_len(str_buffer_ptr)}`);
+  _free(str_buffer_ptr);
+}
+```
+
+```batch
+em++ cpp/src/strings.cpp -o cpp/wasm/strings.js -s EXPORTED_RUNTIME_METHODS=stringToNewUTF8,stringToUTF8  -sEXPORTED_FUNCTIONS=_malloc,_free
+```
+
+### ES_ASM系列
+
+
+
 ## 补充
 
 ## <span id="preamble_js_and_exported_runtime_methods">preamble.js 与 EXPORTED_RUNTIME_METHODS</span>
@@ -443,5 +655,3 @@ Module.onRuntimeInitialized = function() {
 序言代码包含在输出的 JS 中，然后由编译器与您添加的任何 `--pre-js` 和 `--post-js` 文件以及来自任何 JavaScript 库 (`--js-library`) 的代码一起进行优化。这意味着您可以直接调用序言中的方法，编译器会看到您需要它们，并且不会将其删除为未使用的代码。
 
 如果您想从编译器无法看到的某个地方（例如 HTML 上的另一个脚本标签）调用序言方法，则需要将其**导出**。为此，请将它们添加到 `EXPORTED_RUNTIME_METHODS` 中（例如，`-sEXPORTED_RUNTIME_METHODS=ccall,cwrap` 将导出 `ccall` 和 `cwrap`）。导出后，您可以在 `Module` 对象上访问它们（例如，作为 `Module.ccall`）。
-
-
