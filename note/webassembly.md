@@ -223,9 +223,9 @@ EM_PORT_API(void) calladd()
 em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 ```
 
-## 单向透明内存
+### 单向透明内存
 
-### 可用内存大小
+#### 可用内存大小
 
 当前版本的Emscripten(4.0.23)中，指针类型为int32，即最大可用内存为2GB - 1，未定义的情况下（Emscripten 4.0.23），栈容量（STACK_SIZE）为64KB，堆容量16MB，设置`ALLOW_MEMORY_GROWTH`后，`MAXIMUM_MEMORY`生效，内存可扩展至2GB。
 
@@ -283,13 +283,13 @@ em++ cpp/src/import.cpp -o cpp/wasm/import.js --js-library cpp/jsmodule/jsadd.js
 > 
 > 默认值：false
 
-### 获取和设置值
+#### 获取和设置值
 
 Emscripten推荐使用 [`getValue(ptr, type)`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#getValue "getValue") 和 [`setValue(ptr, value, type)`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#setValue "setValue") 访问内存，第一个参数是一个指针（表示内存地址的数字）。 `type` 必须是 LLVM IR 类型，分别是 `i8`、 `i16`、 `i32`、 `i64`、 `float`、 `double` 或指针类型，如 `i8*`（或只是 `*`）。
 
 <span style="color:red;font-weight:bold;">注意，`getValue(ptr, type)`和`setValue(ptr, value, type)`需要在编译时导出，参见<a href="#preamble_js_and_exported_runtime_methods" style="color:inherit">[EXPORTED_RUNTIME_METHODS]</a></span>
 
-### 读写内存
+#### 读写内存
 
 [Emscripten 内存表示](https://emscripten.webassembly.net.cn/docs/porting/emscripten-runtime-environment.html#emscripten-memory-model) 使用类型化数组缓冲区 (`ArrayBuffer`) 来表示内存，其中不同的视图可以访问不同的类型。用于访问不同类型内存的视图如下。
 
@@ -310,7 +310,7 @@ Emscripten推荐使用 [`getValue(ptr, type)`](https://emscripten.webassembly.
 
 相关使用示例详见<a href="#heap_malloc_free_example" style="color:inherit">"在JavaScript中申请内存"</a>，
 
-### 数据交换
+#### 数据交换
 
 <span style="color:#4f7;">JavaScript与C之间只能通过number进行参数何返回值的传递，number传入时，若C中类型为int则向0取整，若为float则可能造成精度丢失。</span>
 
@@ -349,11 +349,11 @@ Module.onRuntimeInitialized = function() {
 
 ![34232e1a-25fc-4de1-ad02-6378a7fef588](./images/34232e1a-25fc-4de1-ad02-6378a7fef588.png)
 
-### 通过内存交换数据
+#### 通过内存交换数据
 
 可通过传递数组指针来传递数据，通过
 
-### 在JavaScript中申请内存<span id="heap_malloc_free_example"> </span>
+#### 在JavaScript中申请内存<span id="heap_malloc_free_example"> </span>
 
 可通过在编译时添加`-sEXPORTED_FUNCTIONS=_malloc,_free`来暴露malloc与free函数。
 
@@ -640,13 +640,265 @@ Module.onRuntimeInitialized = function() {
 em++ cpp/src/strings.cpp -o cpp/wasm/strings.js -s EXPORTED_RUNTIME_METHODS=stringToNewUTF8,stringToUTF8  -sEXPORTED_FUNCTIONS=_malloc,_free
 ```
 
+运行结果：
+
+![ca74dcf3-dc5e-4fe1-a1c3-fd0ecc533449](./images/ca74dcf3-dc5e-4fe1-a1c3-fd0ecc533449.png) 
+
 ### ES_ASM系列
 
+从 C 调用 JavaScript 的更快方法是编写“内联 JavaScript”，使用 [`EM_JS()`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_JS "EM_JS") 或 [`EM_ASM()`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM "EM_ASM")（以及相关的宏）。
 
+> #### `EM_JS`(return_type, function_name, arguments, code)
+> 
+> 用于 JavaScript 库函数的便捷语法。
+> 
+> 这允许您在 C 代码中将 JavaScript 声明为函数，该函数可以像普通 C 函数一样调用。例如，以下 C 程序如果用 Emscripten 编译并在浏览器中运行，将显示两个警报
+> 
+> ```c++
+> EM_JS(void, two_alerts, (), {
+>   alert('hai');
+>   alert('bai');
+> });
+> 
+> int main() {
+>   two_alerts();
+>   return 0;
+> }
+> ```
+> 
+> 参数可以像普通 C 参数一样传递，并且在 JavaScript 代码中具有相同的名称。这些参数可以是 `int32_t` 或 `double` 类型。
+> 
+> ```c++
+> EM_JS(void, take_args, (int x, float y), {
+>   console.log('I received: ' + [x, y]);
+> });
+> 
+> int main() {
+>   take_args(100, 35.5);
+>   return 0;
+> }
+> ```
+> 
+> 以 null 结尾的 C 字符串也可以传递到 `EM_JS` 函数中，但要对它们进行操作，需要将它们从堆中复制出来以转换为高级 JavaScript 字符串。
+> 
+> ```c++
+> EM_JS(void, say_hello, (const char* str), {
+>   console.log('hello ' + UTF8ToString(str));
+> });
+> ```
+> 
+> 以相同的方式，可以将指向任何类型（包括 `void *`）的指针传递到 `EM_JS` 代码中，它们在那里显示为整数，就像上面的 `char *` 指针一样。可以通过直接读取堆来管理对数据的访问。
+> 
+> ```c++
+> EM_JS(void, read_data, (int* data), {
+>   console.log('Data: ' + HEAP32[data>>2] + ', ' + HEAP32[(data+4)>>2]);
+> });
+> 
+> int main() {
+>   int arr[2] = { 30, 45 };
+>   read_data(arr);
+>   return 0;
+> });
+> ```
+> 
+> 此外，EM_JS 函数可以将值返回给 C 代码。输出值使用 `return` 语句传回
+> 
+> ```c++
+> EM_JS(int, add_forty_two, (int n), {
+>   return n + 42;
+> });
+> 
+> EM_JS(int, get_memory_size, (), {
+>   return HEAP8.length;
+> });
+> 
+> int main() {
+>   int x = add_forty_two(100);
+>   int y = get_memory_size();
+>   // ...
+> }
+> ```
+> 
+> 字符串可以从 JavaScript 返回到 C，但需要小心内存管理。
+> 
+> ```c++
+> EM_JS(char*, get_unicode_str, (), {
+>   var jsString = 'Hello with some exotic Unicode characters: Tässä on yksi lumiukko: ☃, ole hyvä.';
+>   // 'jsString.length' would return the length of the string as UTF-16
+>   // units, but Emscripten C strings operate as UTF-8.
+>   return stringToNewUTF8(jsString);
+> });
+> 
+> int main() {
+>   char* str = get_unicode_str();
+>   printf("UTF8 string says: %s\n", str);
+>   // Each call to _malloc() must be paired with free(), or heap memory will leak!
+>   free(str);
+>   return 0;
+> }
+> ```
+> 
+> #### `EM_ASM`(...)
+> 
+> 用于内联汇编/JavaScript 的便捷语法。
+> 
+> 这允许您在 C 代码中“内联”声明 JavaScript，然后在编译后的代码在浏览器中运行时执行它。例如，以下 C 代码如果用 Emscripten 编译并在浏览器中运行，将显示两个警报
+> 
+> ```c++
+> EM_ASM(alert('hai'); alert('bai'))
+> ```
+> 
+> 参数可以传递到 JavaScript 代码块中，它们在那里作为变量 `$0`、`$1` 等出现。这些参数可以是 `int32_t` 或 `double` 类型。
+> 
+> ```c++
+> EM_ASM({
+>   console.log('I received: ' + [$0, $1]);
+> }, 100, 35.5);
+> ```
+> 
+> 请注意 `{` 和 `}`。
+> 
+> 以 null 结尾的 C 字符串也可以传递到 `EM_ASM` 块中，但要对它们进行操作，需要将它们从堆中复制出来以转换为高级 JavaScript 字符串。
+> 
+> ```c++
+> EM_ASM(console.log('hello ' + UTF8ToString($0)), "world!");
+> ```
+> 
+> 以相同的方式，可以将指向任何类型（包括 `void *`）的指针传递到 `EM_ASM` 代码中，它们在那里显示为整数，就像上面的 `char *` 指针一样。可以通过直接读取堆来管理对数据的访问。
+> 
+> ```c++
+> int arr[2] = { 30, 45 };
+> EM_ASM({
+>   console.log('Data: ' + HEAP32[$0>>2] + ', ' + HEAP32[($0+4)>>2]);
+> }, arr);
+> ```
+> 
+> 注意
+> 
+> * 从 Emscripten `1.30.4` 开始，`EM_ASM` 代码块的内容出现在正常的 JS 文件中，因此 Closure 编译器和其他 JavaScript 缩减器将能够对它们进行操作。您可能需要在某些地方使用安全引号 (`a['b']` 而不是 `a.b`) 以避免缩减发生。
+> 
+> * C 预处理器不了解 JavaScript 令牌，因此如果 `code` 块包含逗号字符 `,`，则可能需要将代码块括在圆括号中。例如，代码 `EM_ASM(return [1,2,3].length);` 无法编译，但 `EM_ASM((return [1,2,3].length));` 可以。
+> 
+> #### `EM_ASM_INT`(code, ...)
+> 
+> 此宏以及 [`EM_ASM_DOUBLE`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM_DOUBLE "EM_ASM_DOUBLE") 和 [`EM_ASM_PTR`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM_PTR "EM_ASM_PTR") 的行为类似于 [`EM_ASM`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM "EM_ASM")，但此外它们还将值返回给 C 代码。输出值使用 `return` 语句传回
+> 
+> ```c++
+> int x = EM_ASM_INT({
+>   return $0 + 42;
+> }, 100);
+> 
+> int y = EM_ASM_INT(return HEAP8.length);
+> ```
+> 
+> #### `EM_ASM_PTR`(code, ...)
+> 
+> 类似于 [`EM_ASM_INT`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM_INT "EM_ASM_INT")，但用于指针大小的返回值。当使用 `-sMEMORY64` 构建时，这将导致 i64 返回值，否则将导致 i32 返回值。
+> 
+> 字符串可以从 JavaScript 返回到 C，但需要小心内存管理。
+> 
+> ```c++
+> char *str = (char*)EM_ASM_PTR({
+>   var jsString = 'Hello with some exotic Unicode characters: Tässä on yksi lumiukko: ☃, ole hyvä.';
+>   var lengthBytes = lengthBytesUTF8(jsString)+1;
+>   // 'jsString.length' would return the length of the string as UTF-16
+>   // units, but Emscripten C strings operate as UTF-8.
+>   return stringToNewUTF8(jsString);
+> });
+> printf("UTF8 string says: %s\n", str);
+> free(str); // Each call to _malloc() must be paired with free(), or heap memory will leak!
+> ```
+> 
+> #### `EM_ASM_DOUBLE`(code, ...)
+> 
+> 类似于 [`EM_ASM_INT`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM_INT "EM_ASM_INT")，但用于 `double` 返回值。
+> 
+> #### `MAIN_THREAD_EM_ASM`(code, ...)
+> 
+> 此宏的行为类似于 [`EM_ASM`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.EM_ASM "EM_ASM")，但它在主线程上执行调用。这在 pthreads 构建中很有用，当您想要从 pthread 与 DOM 交互时；这基本上为您代理了调用。
+> 
+> 此调用以同步方式代理到主线程，也就是说，执行将在主线程完成运行 JS 后恢复。同步代理也使返回值成为可能，请参见接下来的两个变体。
+> 
+> #### `MAIN_THREAD_EM_ASM_INT`(code, ...)
+> 
+> 类似于 [`MAIN_THREAD_EM_ASM`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.MAIN_THREAD_EM_ASM "MAIN_THREAD_EM_ASM")，但返回一个 `int` 值。
+> 
+> #### `MAIN_THREAD_EM_ASM_DOUBLE`(code, ...)
+> 
+> 类似于 [`MAIN_THREAD_EM_ASM`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.MAIN_THREAD_EM_ASM "MAIN_THREAD_EM_ASM")，但返回一个 `double` 值。
+> 
+> #### `MAIN_THREAD_EM_ASM_PTR`(code, ...)
+> 
+> 类似于 [`MAIN_THREAD_EM_ASM`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.MAIN_THREAD_EM_ASM "MAIN_THREAD_EM_ASM")，但返回一个指针值。
+> 
+> #### `MAIN_THREAD_ASYNC_EM_ASM`(code, ...)
+> 
+> 类似于 [`MAIN_THREAD_EM_ASM`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.MAIN_THREAD_EM_ASM "MAIN_THREAD_EM_ASM")，但以 **异步** 方式代理，也就是说，主线程将收到一个请求来运行代码，并且将在它可以的时候运行它；工作线程不会等待。 （请注意，如果在主线程上调用它，则没有任何内容需要代理，并且 JS 会立即同步执行。）
+
+示例：
+
+```c++
+#include <emscripten/emscripten.h>
+#include <stdio.h>
+EM_JS(void, two_logs, (), {
+  console.log('hai');
+  console.log('bai');
+});
+
+EM_JS(void, take_args, (int x, float y),
+      { console.log('I received: ' + [ x, y ]); });
+
+EM_JS(void, say_hello, (const char *str),
+      { console.log('hello ' + UTF8ToString(str)); })
+
+EM_JS(void, read_data, (int *data), {
+  console.log('Data: ' + HEAP32[data >> 2] + ', ' + HEAP32[(data + 4) >> 2]);
+})
+
+EM_JS(int, add_forty_two, (int n), { return n + 42; });
+
+EM_JS(int, get_memory_size, (), { return HEAP8.length; });
+
+EM_JS(char *, get_unicode_str, (), {
+  var jsString =
+      'Hello with some exotic Unicode characters: Tässä on yksi lumiukko: ☃, ole hyvä.';
+  // 'jsString.length' would return the length of the string as UTF-16
+  // units, but Emscripten C strings operate as UTF-8.
+  return stringToNewUTF8(jsString);
+});
+
+
+int main() {
+  two_logs();
+  take_args(100, 35.5);
+  int arr[2] = {30, 45};
+  read_data(arr);
+  int x = add_forty_two(100);
+  int y = get_memory_size();
+  printf("add_forty_two(100) = %d\n", x);
+  printf("get_memory_size() = %d\n", y);
+
+  char* str = get_unicode_str();
+  printf("UTF8 string says: %s\n", str);
+  // Each call to _malloc() must be paired with free(), or heap memory will leak!
+  free(str);
+  return 0;
+}
+```
+
+编译:
+
+```batch
+em++ cpp/src/asm.cpp -o cpp/wasm/asm.js -sEXPORTED_RUNTIME_METHODS=stringToNewUTF8
+```
+
+结果：
+
+![f9070ccb-8b08-4511-9364-5fecf264ab3a](./images/f9070ccb-8b08-4511-9364-5fecf264ab3a.png)
 
 ## 补充
 
-## <span id="preamble_js_and_exported_runtime_methods">preamble.js 与 EXPORTED_RUNTIME_METHODS</span>
+## preamble.js 与 EXPORTED_RUNTIME_METHODS<span id="preamble_js_and_exported_runtime_methods"> </span>
 
 在 [preamble.js](https://github.com/emscripten-core/emscripten/blob/main/src/preamble.js) 中的 JavaScript API 提供了与编译后的 C 代码进行交互的编程访问方式，包括：调用编译后的 C 函数、访问内存、将指针转换为 JavaScript `Strings` 和 `Strings` 到指针（使用不同的编码/格式）以及其他便捷函数。
 
@@ -655,3 +907,5 @@ em++ cpp/src/strings.cpp -o cpp/wasm/strings.js -s EXPORTED_RUNTIME_METHODS=stri
 序言代码包含在输出的 JS 中，然后由编译器与您添加的任何 `--pre-js` 和 `--post-js` 文件以及来自任何 JavaScript 库 (`--js-library`) 的代码一起进行优化。这意味着您可以直接调用序言中的方法，编译器会看到您需要它们，并且不会将其删除为未使用的代码。
 
 如果您想从编译器无法看到的某个地方（例如 HTML 上的另一个脚本标签）调用序言方法，则需要将其**导出**。为此，请将它们添加到 `EXPORTED_RUNTIME_METHODS` 中（例如，`-sEXPORTED_RUNTIME_METHODS=ccall,cwrap` 将导出 `ccall` 和 `cwrap`）。导出后，您可以在 `Module` 对象上访问它们（例如，作为 `Module.ccall`）。
+
+
