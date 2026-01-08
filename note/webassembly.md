@@ -434,7 +434,7 @@ Module.onRuntimeInitialized = function() {
 
 ### 字符串处理
 
-JavaScript 字符串 `someString` 可以使用 `ptr = stringToNewUTF8(someString)` 转换为 `char *`。(貌似并没有~~stringToNewUTF16~~等)<span style="color:red;font-weight:bold;">转换为指针会分配内存，需要通过调用 `free(ptr)` 来释放内存（在 JavaScript 侧为 `_free`）</span>
+JavaScript 字符串 `someString` 可以使用 `ptr = stringToNewUTF8(someString)` 转换为 `char *`。(貌似并没有~~stringToNewUTF16~~等)<span style="color:red;font-weight:bold;">转换为指针会分配内存，需要通过调用 `free(ptr)` 来释放内存（在 JavaScript 侧为 `_free`）</span><span style="color:#4f7;">可以通过`lengthBytesUTF8``lengthBytesUTF16``lengthBytesUTF32`在JavaScript中计算JavaScript字符串占用的字节大小（无需在编译时导出）</span>
 
 除此之外还有以下方式处理字符串：
 
@@ -592,7 +592,7 @@ String
 
 ---
 
-举例：
+#### 示例代码
 
 ```c++
 //strings.cpp
@@ -773,11 +773,11 @@ em++ cpp/src/strings.cpp -o cpp/wasm/strings.js -s EXPORTED_RUNTIME_METHODS=stri
 > }, arr);
 > ```
 > 
-> 注意
+> <span style="color:red;font-weight:bold;">注意</span>
 > 
-> * 从 Emscripten `1.30.4` 开始，`EM_ASM` 代码块的内容出现在正常的 JS 文件中，因此 Closure 编译器和其他 JavaScript 缩减器将能够对它们进行操作。您可能需要在某些地方使用安全引号 (`a['b']` 而不是 `a.b`) 以避免缩减发生。
+> * <span style="color:red;font-weight:bold;">从 Emscripten `1.30.4` 开始，`EM_ASM` 代码块的内容出现在正常的 JS 文件中，因此 Closure 编译器和其他 JavaScript 缩减器将能够对它们进行操作。您可能需要在某些地方使用安全引号 (`a['b']` 而不是 `a.b`) 以避免缩减发生。</span>
 > 
-> * C 预处理器不了解 JavaScript 令牌，因此如果 `code` 块包含逗号字符 `,`，则可能需要将代码块括在圆括号中。例如，代码 `EM_ASM(return [1,2,3].length);` 无法编译，但 `EM_ASM((return [1,2,3].length));` 可以。
+> * <span style="color:red;font-weight:bold;">C 预处理器不了解 JavaScript 令牌，因此如果 `code` 块包含逗号字符 `,`，则可能需要将代码块括在圆括号中。例如，代码 `EM_ASM(return [1,2,3].length);` 无法编译，但 `EM_ASM((return [1,2,3].length));` 可以。</span>
 > 
 > #### `EM_ASM_INT`(code, ...)
 > 
@@ -886,7 +886,7 @@ int main() {
 }
 ```
 
-编译:
+编译，<span style="color:red;font-weight:bold;">注意此处仍然需要添加`-sEXPORTED_RUNTIME_METHODS=stringToNewUTF8`</span>
 
 ```batch
 em++ cpp/src/asm.cpp -o cpp/wasm/asm.js -sEXPORTED_RUNTIME_METHODS=stringToNewUTF8
@@ -896,9 +896,304 @@ em++ cpp/src/asm.cpp -o cpp/wasm/asm.js -sEXPORTED_RUNTIME_METHODS=stringToNewUT
 
 ![f9070ccb-8b08-4511-9364-5fecf264ab3a](./images/f9070ccb-8b08-4511-9364-5fecf264ab3a.png)
 
+### emscripten_run_script()
+
+ [`emscripten_run_script()`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.emscripten_run_script "emscripten_run_script")。这实际上使用 `eval()` 从 C/C++ 运行指定的 JavaScript 代码。
+
+例如，要使用文本“hi”调用浏览器的 `alert()` 函数，您将调用以下 JavaScript
+
+```c++
+emscripten_run_script("alert('hi')");
+```
+
+> #### void `emscripten_run_script`(const char _*script_)
+> 
+> 与底层 JavaScript 引擎的接口。此函数将 `eval()` 给定的脚本。注意：如果设置了 `-sDYNAMIC_EXECUTION=0`，则此函数将不可用。
+> 
+> 此函数可以从 pthread 中调用，它在托管 pthread 的 Web Worker 的范围内执行。要评估主运行时线程范围内的函数，请参阅函数 emscripten_sync_run_in_main_runtime_thread()。
+> 
+> 参数
+> 
+> * **script** (_const char*_) – 要评估的脚本。
+> 
+> 返回值类型
+> 
+> void
+> 
+> #### int `emscripten_run_script_int`(const char _*script_)
+> 
+> 与底层 JavaScript 引擎的接口。此函数将 `eval()` 给定的脚本。注意：如果设置了 `-sDYNAMIC_EXECUTION=0`，则此函数将不可用。
+> 
+> 此函数可以从 pthread 中调用，它在托管 pthread 的 Web Worker 的范围内执行。要评估主运行时线程范围内的函数，请参阅函数 emscripten_sync_run_in_main_runtime_thread()。
+> 
+> 参数
+> 
+> * **script** (_const char*_) – 要评估的脚本。
+> 
+> 返回值
+> 
+> 评估结果，作为整数。
+> 
+> 返回值类型
+> 
+> int
+> 
+> #### char *`emscripten_run_script_string`(const char _*script_)
+> 
+> 与底层 JavaScript 引擎的接口。此函数将 `eval()` 给定的脚本。请注意，此重载使用跨调用共享的单个缓冲区。注意：如果设置了 `-sDYNAMIC_EXECUTION=0`，则此函数将不可用。
+> 
+> 此函数可以从 pthread 中调用，它在托管 pthread 的 Web Worker 的范围内执行。要评估主运行时线程范围内的函数，请参阅函数 emscripten_sync_run_in_main_runtime_thread()。
+> 
+> 参数
+> 
+> * **script** (_const char*_) – 要评估的脚本。
+> 
+> 返回值
+> 
+> 评估结果，作为字符串。
+> 
+> 返回值类型
+> 
+> char*
+> 
+> #### void `emscripten_async_run_script`(const char _*script_, int _millis_)
+> 
+> 异步运行脚本，在指定的时间段后。
+> 
+> 此函数可以从 pthread 中调用，它在托管 pthread 的 Web Worker 的范围内执行。要评估主运行时线程范围内的函数，请参阅函数 emscripten_sync_run_in_main_runtime_thread()。
+> 
+> 参数
+> 
+> * **script** (_const char*_) – 要评估的脚本。
+> 
+> * **millis** (_int_) – 运行脚本之前的时间，以毫秒为单位。
+> 
+> 返回值类型
+> 
+> void
+> 
+> #### void `emscripten_async_load_script`(const char _*script_, <a href="#em_callback_func" style="color:inherit;">em_callback_func</a> _onload_, <a href="#em_callback_func" style="color:inherit;">em_callback_func</a> _onerror_)
+> 
+> 从 URL 异步加载脚本。
+> 
+> 这与运行依赖项系统集成，因此您的脚本可以多次调用 `addRunDependency`，准备各种异步任务，并在其上调用 `removeRunDependency`；当所有任务都完成后（或者最初没有运行依赖项），将调用 `onload`。这在加载资产模块（即文件打包器的输出）时很有用。
+> 
+> 此函数当前仅在主浏览器线程中可用，如果在 pthread 中调用，它将立即失败并调用提供的 onerror() 处理程序。
+> 
+> 参数
+> 
+> * **script** (const char*) – 要评估的脚本。
+> 
+> * **onload** (<a href="#em_callback_func" style="color:inherit;">em_callback_func</a>) – 一个回调函数，没有参数，在脚本完全加载后执行。
+> 
+> * **onerror** (<a href="#em_callback_func" style="color:inherit;">em_callback_func</a>) – 一个回调函数，没有参数，如果加载时发生错误，则执行。
+> 
+> 返回值类型
+> 
+> void
+
+ <span style="color:#4f7;">`emscripten_async_load_script`的第一个参数实则为需要执行的JavaScript脚本的url，详见以下代码</span>
+
+示例代码
+
+```c++
+//eval.cpp
+#include "../include/ems_export.h"
+#include <emscripten/emscripten.h>
+#include <stdio.h>
+#include <malloc.h>
+void onload(){
+    printf("onload!\n");
+}
+void onerror(){
+    printf("onerror!\n");
+}
+int main(){
+    emscripten_run_script(R"--(
+    function myFunc(){
+        console.log('hello world');
+    }
+    myFunc(); 
+    )--");
+
+    int ret = emscripten_run_script_int(R"--(
+    function myFunc2(){
+        return 42;
+    }
+    myFunc2(); 
+    )--");
+    printf("emscripten_run_script_int result : %d\n", ret);
+
+    const char* ret_str = emscripten_run_script_string(R"--(
+    function myFunc3(){
+        return 'hello world3';
+    }
+    myFunc3(); 
+    )--");
+    printf("emscripten_run_script_string result : %s\n", ret_str);
+    free((void*)ret_str);//可以不调用，因为下次emscripten_run_script_string会自动调用free
+
+    emscripten_async_run_script(R"--(
+    function myFunc4(){
+        console.log('hello world4 after 5000ms');
+    }
+    myFunc4(); 
+    )--",5000);
+
+    emscripten_async_load_script("../code/js/eval_load_js.js",onload,onerror);
+}
+```
+
+```javascript
+//eval_load_js.js
+console.log('eval_load_js hello world');
+```
+
+编译
+
+```batch
+em++ cpp/src/eval.cpp -o cpp/wasm/eval.js
+```
+
+结果
+
+![dbb8f3bf-a61b-41ba-9811-f7a1b4e37f38](./images/dbb8f3bf-a61b-41ba-9811-f7a1b4e37f38.png)
+
+<span style="color:#4f7;">提示：从`_emscripten_run_script_string`的代码中可以发现，其返回的字符串存储在`buffer`中，且下次使用时会自动`free`，所以可以选择在后续代码中释放此字符串空间，也可不释放。</span>
+
+```javascript
+var _emscripten_run_script_string = (ptr) => {
+      var s = eval(UTF8ToString(ptr));
+      if (s == null) {
+        return 0;
+      }
+      s += '';
+      var me = _emscripten_run_script_string;
+      me.bufferSize = lengthBytesUTF8(s) + 1;
+      me.buffer = _realloc(me.buffer ?? 0, me.bufferSize)
+      stringToUTF8(s, me.buffer, me.bufferSize);
+      return me.buffer;
+    };
+```
+
+### ccall 与 cwarp
+
+call的优势在于可以直接使用JavaScript字符串/Uint8Array/Int8Array作为参数，<span style="color:red;font-weight:bold;">当输入参数为string/array时，`ccall()`/`cwrap()`会在栈上分配相应的空间，并将数据复制到对应空间，然后再调用对应的函数。</span>
+
+> 如果您使用 `ccall()` 或 `cwrap()`，则无需在函数调用前加上 `_` - 只需使用 C 名称即可。
+
+
+
+#### `ccall`(_ident_, _returnType_, _argTypes_, _args_, _opts_)
+
+从 JavaScript 调用编译后的 C 函数。
+
+该函数从 JavaScript 执行编译后的 C 函数并返回结果。C++ 名称改编意味着无法调用“普通”C++ 函数；该函数必须在 **.c** 文件中定义，或者是在使用 `extern "C"` 定义的 C++ 函数。
+
+`returnType` 和 `argTypes` 允许您指定参数和返回值的类型。可能的类型是 `"number"`、`"string"`、`"array"` 或 `"boolean"`，它们对应于适当的 JavaScript 类型。<span style="color:#4f7;">对于任何数字类型或 C 指针，使用 `"number"`，对于表示字符串的 C `char*`，使用 `string`，对于布尔类型，使用 `"boolean"`，对于 JavaScript 数组和类型化数组，使用 `"array"`，它们包含 8 位整数数据 - 也就是说，数据被写入 C 数组的 8 位整数中；特别是如果您在这里提供类型化数组，它必须是 Uint8Array 或 Int8Array。如果您想接收其他类型数据的数组，您可以手动分配内存并写入它，然后在这里提供一个指针（作为 `"number"`，因为指针只是数字）。</span>
+
+```js
+// Call C from JavaScript
+var result = Module.ccall('c_add', // name of C function
+  'number', // return type
+  ['number', 'number'], // argument types
+  [10, 20]); // arguments
+// result is 30
+```
+
+注意
+
+* `ccall` 使用 C 堆栈用于临时值。如果您传递字符串，那么它只在调用完成之前“存活”。如果被调用的代码保存了该指针以供将来使用，它可能会指向无效数据。
+
+* 如果您需要一个永久存在的字符串，您可以创建它，例如，使用 `_malloc` 和 [`stringToUTF8()`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#stringToUTF8 "stringToUTF8")。但是，您必须随后手动删除它！
+
+* LLVM 优化可以内联和删除函数，之后您将无法调用它们。类似地，由 _Closure Compiler_ 最小化的函数名是不可访问的。在任何一种情况下，解决方案是在您调用 _emcc_ 时将函数添加到 `EXPORTED_FUNCTIONS` 列表中。
+  -sEXPORTED_FUNCTIONS=_main,_myfunc"
+  （请注意，我们还导出了 `main` - 如果我们没有这样做，编译器会假设我们不需要它。）导出的函数随后可以像平常一样被调用
+  a_result = Module.ccall('myfunc', 'number', ['number'], [10])
+
+参数
+
+* **ident** – 要调用的 C 函数的名称。
+
+* **returnType** – 函数的返回类型。请注意，不支持 `array`，因为我们没有办法知道数组的长度。对于 void 函数，这可以是 `null`（注意：是 JavaScript `null` 值，而不是包含单词“null”的字符串）。
+
+注意
+
+<span style="color:#4f7;">64 位整数变为两个 32 位参数，分别用于低位和高位（因为 64 位整数无法用 JavaScript 数字表示）。</span>
+
+参数
+
+* **argTypes** – 函数参数类型的数组（如果没有参数，可以省略）。
+
+* **args** – 函数参数的数组，作为本机 JavaScript 值（如 `returnType` 中所示）。请注意，字符串参数将存储在堆栈上（JavaScript 字符串将成为堆栈上的 C 字符串）。
+
+返回值
+
+函数调用的结果，作为本机 JavaScript 值（如 `returnType` 中所示），或者如果设置了 `async` 选项，则为结果的 JavaScript Promise。
+
+Opts
+
+可选的选项对象。它可以包含以下属性
+
+* `async`: 如果为 `true`，则表示 ccall 将执行异步操作。这假设您使用 asyncify 支持进行构建。
+
+注意
+
+异步调用目前不支持 promise 错误处理。
+
+----
+
+#### `cwrap`(_ident_, _returnType_, _argTypes_)
+
+返回 C 函数的本机 JavaScript 包装器。
+
+这类似于 [`ccall()`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#ccall "ccall")，但返回一个 JavaScript 函数，该函数可以根据需要多次重用。C 函数可以在 C 文件中定义，或者是在使用 `extern "C"` 定义的 C 兼容 C++ 函数（以防止名称改编）。
+
+```js
+// Call C from JavaScript
+var c_javascript_add = Module.cwrap('c_add', // name of C function
+  'number', // return type
+  ['number', 'number']); // argument types
+
+// Call c_javascript_add normally
+console.log(c_javascript_add(10, 20)); // 30
+console.log(c_javascript_add(20, 30)); // 50
+```
+
+注意
+
+* `cwrap` 使用 C 堆栈用于临时值。如果您传递字符串，那么它只在调用完成之前“存活”。如果被调用的代码保存了该指针以供将来使用，它可能会指向无效数据。如果您需要一个永久存在的字符串，您可以创建它，例如，使用 `_malloc` 和 [`stringToUTF8()`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#stringToUTF8 "stringToUTF8")。但是，您必须随后手动删除它！
+
+* 要包装函数，必须通过在您调用 _emcc_ 时将其添加到 `EXPORTED_FUNCTIONS` 列表中来导出它。如果函数没有导出，优化可能会将其删除，并且 `cwrap` 将无法在运行时找到它。（在启用了 `ASSERTIONS` 的构建中，`cwrap` 将在这种情况下显示错误；在没有断言的发布构建中，尝试包装不存在的函数将出现错误，要么返回 undefined，要么返回一个在实际调用时将出现错误的函数，具体取决于 `cwrap` 的优化方式。）
+
+* `cwrap` 实际上并没有调用编译后的代码（只有调用它返回的包装器才会这样做）。这意味着在运行时完全初始化之前（当然，调用返回的包装函数必须等待运行时，就像在一般情况下调用编译后的代码一样），可以安全地尽早调用 `cwrap`。
+  `-sEXPORTED_FUNCTIONS=_main,_myfunc`导出函数可以像普通函数一样调用
+
+```js
+my_func = Module.cwrap('myfunc', 'number', ['number'])
+my_func(12)
+```
+
+参数
+
+* **ident** – 要调用的 C 函数的名称。
+
+* **returnType** – 函数的返回类型。可以是 `"number"`、`"string"` 或 `"array"`，它们对应于适当的 JavaScript 类型（对于任何 C 指针，使用 `"number"`，对于 JavaScript 数组和类型化数组，使用 `"array"`；请注意，数组是 8 位），对于 void 函数，它可以是 `null`（注意：JavaScript `null` 值，而不是包含“null”一词的字符串）。
+
+* **argTypes** – 函数参数类型的数组（如果没有参数，可以省略）。类型与 `returnType` 中的类型相同，只是 `array` 不受支持，因为我们无法知道数组的长度。
+
+* **opts** – 可选的选项对象，请参见 [`ccall()`](https://emscripten.webassembly.net.cn/docs/api_reference/preamble.js.html#ccall "ccall")。
+
+返回值
+
+可以用来运行 C 函数的 JavaScript 函数。
+
+
+
 ## 补充
 
-## preamble.js 与 EXPORTED_RUNTIME_METHODS<span id="preamble_js_and_exported_runtime_methods"> </span>
+### preamble.js 与 EXPORTED_RUNTIME_METHODS<span id="preamble_js_and_exported_runtime_methods"> </span>
 
 在 [preamble.js](https://github.com/emscripten-core/emscripten/blob/main/src/preamble.js) 中的 JavaScript API 提供了与编译后的 C 代码进行交互的编程访问方式，包括：调用编译后的 C 函数、访问内存、将指针转换为 JavaScript `Strings` 和 `Strings` 到指针（使用不同的编码/格式）以及其他便捷函数。
 
@@ -907,5 +1202,89 @@ em++ cpp/src/asm.cpp -o cpp/wasm/asm.js -sEXPORTED_RUNTIME_METHODS=stringToNewUT
 序言代码包含在输出的 JS 中，然后由编译器与您添加的任何 `--pre-js` 和 `--post-js` 文件以及来自任何 JavaScript 库 (`--js-library`) 的代码一起进行优化。这意味着您可以直接调用序言中的方法，编译器会看到您需要它们，并且不会将其删除为未使用的代码。
 
 如果您想从编译器无法看到的某个地方（例如 HTML 上的另一个脚本标签）调用序言方法，则需要将其**导出**。为此，请将它们添加到 `EXPORTED_RUNTIME_METHODS` 中（例如，`-sEXPORTED_RUNTIME_METHODS=ccall,cwrap` 将导出 `ccall` 和 `cwrap`）。导出后，您可以在 `Module` 对象上访问它们（例如，作为 `Module.ccall`）。
+
+### 回调函数类型
+
+以下类型用于定义在本文件中的许多函数中使用的函数回调签名。
+
+#### `em_callback_func` <span id="em_callback_func"> </span>
+
+用于没有参数的回调的通用函数指针类型。
+
+定义为
+
+```c++
+typedef void (*em_callback_func)(void)
+```
+
+#### `em_arg_callback_func`
+
+用于具有单个 `void*` 参数的回调的通用函数指针类型。
+
+此类型用于定义需要传递任意数据的函数回调。例如，[`emscripten_set_main_loop_arg()`](https://emscripten.cn/docs/api_reference/emscripten.h.html#c.emscripten_set_main_loop_arg "emscripten_set_main_loop_arg") 设置用户定义的数据，并在完成时将其传递给此类型的回调。
+
+定义为
+
+```c++
+typedef void (*em_arg_callback_func)(void*)
+```
+
+#### `em_str_callback_func`
+
+用于回调的通用函数指针类型，带有 C 字符串 (`const char *`) 参数。
+
+此类型用于需要传递 C 字符串的函数回调。例如，它在 [`emscripten_async_wget()`](https://emscripten.cn/docs/api_reference/emscripten.h.html#c.emscripten_async_wget "emscripten_async_wget") 中用于传递已异步加载的文件的名称。
+
+定义为
+
+```c++
+typedef void (*em_str_callback_func)(const char *)
+```
+
+### EM_ASYNC_JS
+
+除了 `emscripten_sleep` 和其他标准同步 API 之外，Asyncify 还支持添加你自己的函数。为此，你需要创建一个从 Wasm 调用的 JS 函数（因为 Emscripten 从 JS 运行时控制着 Wasm 的暂停和恢复）。
+
+一种方法是使用 JS 库函数。另一种方法是使用 `EM_ASYNC_JS`，我们将在下一个示例中使用它
+
+```c++
+// example.c
+#include <emscripten.h>
+#include <stdio.h>
+
+EM_ASYNC_JS(int, do_fetch, (), {
+  out("waiting for a fetch");
+  const response = await fetch("a.html");
+  out("got the fetch response");
+  // (normally you would do something with the fetch here)
+  return 42;
+});
+
+int main() {
+  puts("before");
+  do_fetch();
+  puts("after");
+}
+
+```
+
+在这个示例中，异步操作是 `fetch`，这意味着我们需要等待 Promise。虽然该操作是异步的，但请注意，`main()` 中的 C 代码是完全同步的！
+
+要运行此示例，首先用以下命令编译它：
+
+```batch
+emcc example.c -O3 -o a.html -s<ASYNCIFY or JSPI>
+```
+
+要运行它，你需要运行一个 [本地 Web 服务器](https://emscripten.webassembly.net.cn/docs/getting_started/FAQ.html#faq-local-webserver)，然后浏览到 `https://:8000/a.html`。你将看到类似以下内容：
+
+```text
+before
+waiting for a fetch
+got the fetch response
+after
+```
+
+这表明 C 代码只在异步 JS 完成后才继续执行。
 
 

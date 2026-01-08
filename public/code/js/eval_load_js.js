@@ -1,0 +1,1 @@
+console.log('eval_load_js hello world');

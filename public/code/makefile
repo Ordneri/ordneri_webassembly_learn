@@ -4,12 +4,12 @@ additional ?= ""
 simple = 
 
 ifdef calwra
-	simple += -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall"]'
+	simple += -sEXPORTED_RUNTIME_METHODS=cwrap,ccall
 endif
 ifdef fremal
 	simple += -sEXPORTED_FUNCTIONS=_malloc,_free
 endif
-
+.PHONY:del
 md.js md.wasm:
 	em++ -o md.js md.cpp -s EXPORTED_RUNTIME_METHODS='["cwrap","ccall"]' -s ALLOW_MEMORY_GROWTH=1 -s MODULARIZE=1  -s 'EXPORT_NAME="mdModule"'
 
@@ -20,6 +20,8 @@ cpp:cpp/src/$(name).cpp
 cc:cpp/src/$(name).cc
 	emcc cpp/src/$(name).cc -o cpp/wasm/$(name).js $(additional) $(simple)
 
+del:
+	$(RM) cpp/wasm/$(name).js cpp/wasm/$(name).wasm
 
 clean:
 	$(RM) public/scripts/cpp/out.js,public/scripts/cpp/out.wasm
