@@ -1,4 +1,3 @@
-#include "../include/ems_export.h"
 #include <emscripten/emscripten.h>
 #include <stdio.h>
 #include <malloc.h>

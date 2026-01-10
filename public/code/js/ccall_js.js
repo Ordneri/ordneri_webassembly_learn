@@ -11,4 +11,5 @@ Module.onRuntimeInitialized = function() {
     i32arr[i] = i+1;
   }
   console.log(sum(i8arr, count));
+  Module.ccall('say', null, ['string'], ['hello world']);
 }

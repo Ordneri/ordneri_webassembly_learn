@@ -998,7 +998,6 @@ emscripten_run_script("alert('hi')");
 
 ```c++
 //eval.cpp
-#include "../include/ems_export.h"
 #include <emscripten/emscripten.h>
 #include <stdio.h>
 #include <malloc.h>
@@ -1189,6 +1188,431 @@ my_func(12)
 
 可以用来运行 C 函数的 JavaScript 函数。
 
+----
+
+<span style="color:red;font-weight:bold;">虽然官方(Emscripten 4.0.23)中仍然介绍到64位整数需要拆成两个32位整数传输，但在实际使用中发现可以通过BigInt传输64位整数</span>
+
+代码示例
+
+```c++
+//ccall.cpp
+#include "../include/ems_export.h"
+#include "emscripten/console.h"
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+EM_PORT_API(unsigned long long int) mult(unsigned long long int a, unsigned long long int b){
+    printf("mult in c: %llu * %llu = %llu",a,b,a*b);
+    char str[100];
+    sprintf(str,"mult in c: %llu * %llu = %llu",a,b,a*b);
+    emscripten_console_log(str);
+    return a * b;
+}
+EM_PORT_API(int) sum(uint8_t * arr, int len){
+    int ret = 0,temp;
+    for(int i = 0; i < len; i++){
+        memcpy(&temp,arr+i*4,4);
+        ret += temp;
+    }
+    return ret;
+}
+EM_PORT_API(void) say(const char * str){
+    emscripten_console_log(str);//ccall调用时printf无效
+}
+```
+
+```js
+//ccall_js.js
+Module = {}
+Module.onRuntimeInitialized = function() {
+  const mult = Module.ccall('mult', 'number', ['number', 'number'],[6n, BigInt(0x100000000)]);
+  console.log(mult);
+  const sum = Module.cwrap('sum', 'number', ['array', 'number']);
+  let count = 50;
+  let buf = new ArrayBuffer(count << 2);
+  let i8arr = new Int8Array(buf);
+  let i32arr = new Int32Array(buf);
+  for(let i = 0; i < count; i++){
+    i32arr[i] = i+1;
+  }
+  console.log(sum(i8arr, count));
+  Module.ccall('say', null, ['string'], ['hello world']);
+}
+```
+
+编译：
+
+```batch
+em++ cpp/src/ccall.cpp -o cpp/wasm/ccall.js -sEXPORTED_RUNTIME_METHODS=cwrap,ccall
+```
+
+结果：
+
+
+
+## Emscripten运行时
+
+### main()与生命周期
+
+在上文的案例中，main()函数并未控制wasm模块的生命周期，函数在main()执行完成后依然能够调用，甚至可以不写main()函数。如果希望在main()函数返回后销毁Emscripten运行时，可以在编译时添加`-sEXIT_RUNTIME=1`或`-sNO_EXIT_RUNTIME=0`
+
+> 对于布尔选项，可以使用 `NO_` 前缀来反转其含义。例如，`-sEXIT_RUNTIME=0` 等效于 `-sNO_EXIT_RUNTIME=1`，反之亦然。在大多数情况下不建议这样做。
+
+
+
+### 消息循环
+
+在Emscripten中，使用`emscripten_set_main_loop()`用于创建主消息循环。
+
+---
+
+#### void `emscripten_set_main_loop`(<a href="#em_callback_func" style="color:inherit">em_callback_func</a> _func_, int _fps_, bool _simulate_infinite_loop_)
+
+将 C 函数设置为调用线程的主事件循环。
+
+如果主循环函数需要接收用户定义的数据，请使用 `emscripten_set_main_loop_arg()`代替。
+
+JavaScript 环境将以指定的每秒帧数调用该函数。如果在主浏览器线程中调用，将 0 或负值作为 `fps` 将使用浏览器的 `requestAnimationFrame` 机制来调用主循环函数。如果正在进行渲染，强烈建议这样做，因为浏览器的 `requestAnimationFrame` 将确保以适当的平滑速率进行渲染，该速率与浏览器和显示器同步。如果应用程序根本没有进行渲染，则应选择一个适合代码的特定帧速率。
+
+如果 `simulate_infinite_loop` 为真，则函数将抛出一个异常以停止调用者的执行。这将导致进入主循环而不是运行 `emscripten_set_main_loop()` 调用后的代码，这是我们最接近模拟无限循环的方式（我们在 [glutMainLoop](https://github.com/emscripten-core/emscripten/blob/1.29.12/system/include/GL/freeglut_std.h#L400) 中的 [GLUT](http://www.opengl.org/resources/libraries/glut/) 中做了类似的事情）。如果此参数为 `false`，则行为与添加此参数之前相同，即执行照常继续。请注意，在这两种情况下，我们都不会运行全局析构函数、`atexit` 等，因为我们知道主循环仍在运行，但如果我们不模拟无限循环，则堆栈将被展开。这意味着，如果 `simulate_infinite_loop` 为 `false`，并且在堆栈上创建了一个对象，它将在主循环首次被调用之前被清理。
+
+此函数可以在 pthread 中调用，在这种情况下，回调循环将设置为在调用线程的上下文中调用。为了使循环正常工作，调用线程必须通过退出其 pthread 主函数定期“返回”给浏览器，因为只有当调用线程没有执行任何其他代码时，回调才能执行。这意味着运行同步阻塞主循环与 emscripten_set_main_loop() 函数不兼容。
+
+由于 `requestAnimationFrame()` API 在 Web Worker 中不可用，因此在使用 `fps` <= 0 在 pthread 中调用 `emscripten_set_main_loop()` 时，会模拟与显示器刷新率同步的效果，通常不会精确地与垂直同步间隔对齐。
+
+提示
+
+每个线程一次只能有一个主循环函数。要更改主循环函数，首先取消（emscripten_cancel_main_loop) 当前循环，然后调用此函数以设置另一个循环。
+
+注意
+
+请参阅 `emscripten_set_main_loop_expected_blockers()`、`emscripten_pause_main_loop()`、`emscripten_resume_main_loop()`和 `emscripten_cancel_main_loop()`，以了解有关阻塞、暂停和恢复调用线程的主循环的信息。
+
+注意
+
+调用此函数会通过应用参数 `fps` 指定的计时模式，覆盖调用线程中对 `emscripten_set_main_loop_timing()` 的任何先前调用的效果。要为当前线程指定不同的计时模式，请在设置主循环后调用函数 `emscripten_set_main_loop_timing()`。
+
+注意
+
+<span style="color:red;font-weight:bold;">目前，在调用时在堆栈上具有析构函数的对象的 C++ 项目中，使用 [新的 Wasm 异常处理](https://emscripten.webassembly.net.cn/docs/porting/exceptions.html#webassembly-exception-handling-proposal) 和 `simulate_infinite_loop` == true 同时使用尚不可行。</span>
+
+参数
+
+* **func** (em_callback_func) – 设置为调用线程的主事件循环的 C 函数。
+
+* **fps** (_int_) – JavaScript 调用该函数的每秒帧数。设置 `int <=0`（推荐）使用浏览器的 `requestAnimationFrame` 机制来调用该函数。
+
+* **simulate_infinite_loop** (_bool_) – 如果为真，则此函数将抛出一个异常以停止调用者的执行。
+
+---
+
+#### void `emscripten_set_main_loop_arg`(<a href="#em_arg_callback_func" style="color:inherit">em_arg_callback_func</a> _func_, void _*arg_, int _fps_, bool _simulate_infinite_loop_)
+
+将 C 函数设置为调用线程的主事件循环，并向其传递用户定义的数据。
+
+另请参见
+
+有关 `emscripten_set_main_loop()` 中的信息也适用于此函数。
+
+参数
+
+* **func** (<a href="#em_arg_callback_func" style="color:inherit">em_arg_callback_func</a>) – 设置为主事件循环的 C 函数。函数签名必须具有 `void*` 参数以传递 `arg` 值。
+
+* **arg** (void*) – 传递给主循环函数的用户定义数据，不受 API 本身的干扰。
+
+* **fps** (_int_) – JavaScript 调用该函数的每秒帧数。设置 `int <=0`（推荐）将使用浏览器的 `requestAnimationFrame` 机制来调用该函数。
+
+* **simulate_infinite_loop** (_bool_) – 如果为真，则此函数将抛出一个异常以停止调用者的执行。
+
+---
+
+#### void `emscripten_push_main_loop_blocker`(<a href="#em_arg_callback_func" style="color:inherit">em_arg_callback_func</a> _func_, void _*arg_)
+
+#### void `emscripten_push_uncounted_main_loop_blocker`(<a href="#em_arg_callback_func" style="color:inherit">em_arg_callback_func</a> _func_, void _*arg_)
+
+添加一个 **阻塞** 调用线程主循环的函数。
+
+该函数将添加到要阻塞的事件队列的末尾；主循环将不会运行，直到队列中的所有阻塞器都完成。
+
+在“计数”版本中，阻塞器会被（内部）计数，并且 `Module.setStatus` 会被调用，并使用一些文本来报告进度（`setStatus` 是一个通用钩子，程序可以定义它来显示处理更新）。
+
+注意
+
+* 主循环阻塞器会阻止主循环运行，并且可以被计数以显示进度。相反，`emscripten_async_calls` 不会被计数，不会阻止主循环，并且可以在将来的特定时间触发。
+
+参数
+
+* **func** (<a href="#em_arg_callback_func" style="color:inherit">em_arg_callback_func</a>) – 主循环阻塞器函数。函数签名必须有一个 `void*` 参数，用于传递 `arg` 值。
+
+* **arg** (_void*_) – 传递给阻塞器函数的用户定义参数。
+
+返回值类型
+
+void
+
+---
+
+#### void `emscripten_pause_main_loop`(void)
+
+#### void `emscripten_resume_main_loop`(void)
+
+暂停和恢复调用线程的主循环。
+
+暂停和恢复主循环在您的应用程序需要执行一些同步操作时很有用，例如从网络加载文件。在完成之前运行主循环可能是不正确的（原始代码假设这一点），因此您可以将代码分解为异步回调，但您必须暂停主循环，直到它们完成。
+
+注意
+
+这些是相当底层的函数。 `emscripten_push_main_loop_blocker()`（及其朋友）提供更便捷的替代方案。
+
+void `emscripten_cancel_main_loop`(void)
+
+取消调用线程的主事件循环。
+
+另请参阅 `emscripten_set_main_loop()`和 `emscripten_set_main_loop_arg()`，了解有关设置和使用主循环的信息。
+
+注意
+
+此函数会取消主循环，这意味着它将不再被调用。控制流不会发生其他变化。特别是，如果您使用 `simulate_infinite_loop` 选项启动了主循环，您仍然可以取消主循环，但执行不会在设置主循环后的代码中继续（我们实际上并没有在那里运行无限循环——这在 JavaScript 中是不可能的，因此为了模拟无限循环，我们会在那个阶段停止执行，然后运行的下一件事就是主循环本身，所以看起来像无限循环从那里开始了；取消主循环有点破坏了这个比喻）。
+
+---
+
+#### int `emscripten_set_main_loop_timing`(int _mode_, int _value_)
+
+指定调用线程的主循环滴答函数将被调用的调度模式。
+
+此函数可用于交互式控制 Emscripten 运行时驱动由调用函数 `emscripten_set_main_loop()`指定的主循环的速率。在原生开发中，这对应于 3D 渲染的“交换间隔”或“呈现间隔”。此函数指定的新的滴答间隔会立即对现有主循环生效，并且此函数只能在通过 `emscripten_set_main_loop()` 设置主循环后调用。
+
+参数
+
+- **mode** (_int_)
+  要使用的计时模式。允许的值是 `EM_TIMING_SETTIMEOUT`、`EM_TIMING_RAF` 和 `EM_TIMING_SETIMMEDIATE`。
+* **value** (_int_) 
+  要为主循环激活的计时值。此值根据 `mode` 参数进行不同的解释
+  
+  * 如果 `mode` 是 EM_TIMING_SETTIMEOUT，则 `value` 指定后续滴答到主循环之间等待的毫秒数，并且更新独立于显示器的垂直同步速率（垂直同步关闭）。此方法使用 JavaScript `setTimeout` 函数来驱动动画。
+  
+  * 如果 `mode` 是 EM_TIMING_RAF，则使用 `requestAnimationFrame` 函数（启用垂直同步）执行更新，并且此值被解释为主循环的“交换间隔”速率。值 `1` 指定运行时它应该在每次垂直同步时渲染（通常是 60fps），而值 `2` 意味着主循环回调应该只在每秒垂直同步时调用（30fps）。作为一般公式，值 `n` 意味着主循环在每第 n 次垂直同步时更新，或者以 `60/n` 的速率（对于 60Hz 显示器）和 `120/n` 的速率（对于 120Hz 显示器）更新。
+  
+  * 如果 `mode` 是 EM_TIMING_SETIMMEDIATE，则使用 `setImmediate` 函数执行更新，或者如果不可用，则通过 `postMessage` 模拟。有关更多信息，请参见 setImmediate on MDN <https://mdn.org.cn/en-US/docs/Web/API/Window/setImmediate>。请注意，此模式 **强烈建议不要** 用于将 Emscripten 输出部署到网络，因为它依赖于处于草案状态的不稳定的网络扩展，除 IE 之外的浏览器目前不支持它，并且其实现已被认为在审查中存在争议。
+    
+    
+
+返回值类型
+
+int
+
+返回值
+
+成功时返回 0，失败时返回非零值。如果在调用此函数之前没有活动的主循环，则会发生错误。
+
+注意
+
+浏览器对使用 `requestAnimationFrame` 进行动画而不是其他提供的模式进行了大量优化。因此，为了获得最佳的跨浏览器体验，使用 `mode=EM_TIMING_RAF` 和 `value=1` 调用此函数将产生最佳结果。使用 JavaScript `setTimeout` 函数已知会导致卡顿，并且通常比使用 `requestAnimationFrame` 函数体验更差。
+
+注意
+
+`setTimeout` 和 `requestAnimationFrame` 之间存在功能上的差异：如果用户最小化浏览器窗口或隐藏您的应用程序选项卡，浏览器通常会停止调用 `requestAnimationFrame` 回调，但基于 `setTimeout` 的主循环将继续运行，尽管间隔会受到严重限制。有关更多信息，请参见 setTimeout on MDN <https://mdn.org.cn/en-US/docs/Web/API/WindowTimers.setTimeout#Inactive_tabs>。
+
+---
+
+#### void `emscripten_get_main_loop_timing`(int _*mode_, int _*value_)
+
+返回当前生效的主循环计时模式。有关值的解释，请参见函数 `emscripten_set_main_loop_timing()` 的文档。计时模式由调用函数 `emscripten_set_main_loop_timing()`和 `emscripten_set_main_loop()`控制。
+
+- **mode** (int*)
+
+    如果不为空，则使用的计时模式将在此处返回。
+
+- value (int*)
+
+    如果不为空，则使用的计时值将在此处返回。
+
+---
+
+#### void `emscripten_set_main_loop_expected_blockers`(int _num_)
+
+设置即将推入的阻塞器数量。
+
+该数量用于在主循环继续后报告一组阻塞器的 *相对进度*。
+
+例如，游戏可能需要运行 10 个阻塞器才能开始新关卡。操作将首先将此值设置为 '10'，然后推入 10 个阻塞器。当第 3 个阻塞器（比如）完成时，进度将显示为 3/10。
+
+参数
+
+* **num** (_int_) – 即将推入的阻塞器数量。
+
+---
+
+#### void `emscripten_async_call`([em_arg_callback_func](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.em_arg_callback_func "em_arg_callback_func") _func_, void _*arg_, int _millis_)
+
+异步调用 C 函数，即在将控制权返回给 JavaScript 事件循环后调用。
+
+这是通过 `setTimeout` 完成的。
+
+在原生构建时，这将变为简单的直接调用，在 `SDL_Delay` 之后（您必须包含 **SDL.h** 才能使用它）。
+
+如果 `millis` 为负数，则将使用浏览器的 `requestAnimationFrame` 机制。（请注意，0 表示仍然使用 `setTimeout`，这基本上意味着“尽快异步运行”）。
+
+参数
+
+* **func** ([_em_arg_callback_func_](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.em_arg_callback_func "em_arg_callback_func")) – 要异步调用的 C 函数。函数签名必须有一个 `void*` 参数，用于传递 `arg` 值。
+
+* **arg** (_void*_) – 传递给 C 函数的用户定义参数。
+
+* **millis** (_int_) – 函数调用前的超时时间。
+
+---
+
+#### void `emscripten_exit_with_live_runtime`(void)
+
+停止当前的执行线程，但保持运行时处于活动状态，以便您稍后继续运行代码（因此不会运行全局析构函数等）。请注意，当您执行异步操作（如 [`emscripten_async_call()`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.emscripten_async_call "emscripten_async_call")）时，运行时会自动保持活动状态，因此在这些情况下不需要调用此函数。
+
+在多线程应用程序中，这只会退出当前线程（并允许稍后在运行它的 Web Worker 中运行代码）。
+
+---
+
+#### void `emscripten_force_exit`(int _status_)
+
+关闭运行时并退出（终止）程序，就像您调用 `exit()` 一样。
+
+区别在于 `emscripten_force_exit` 即使您之前调用了 [`emscripten_exit_with_live_runtime()`](https://emscripten.webassembly.net.cn/docs/api_reference/emscripten.h.html#c.emscripten_exit_with_live_runtime "emscripten_exit_with_live_runtime") 或以其他方式使运行时保持活动状态，也会关闭运行时。换句话说，此方法使您能够在运行时在 `main()` 完成后继续保持活动状态的情况下，完全关闭运行时。
+
+请注意，如果未设置 `EXIT_RUNTIME`（默认情况下），则无法关闭运行时，因为我们不包含执行此操作的代码。如果您希望能够退出运行时，请使用 `-sEXIT_RUNTIME` 进行构建。
+
+参数
+
+* **status** (_int_) – 与 _libc_ 函数 [exit()](http://linux.die.net/man/3/exit) 相同。
+
+---
+
+#### 示例
+
+```c++
+//loop.cpp
+#include "../include/ems_export.h"
+#include "emscripten/emscripten.h"
+#include <stdio.h>
+#include <string.h>
+struct {
+  bool alloced = false;
+  void *ptr;
+} loop_arg;
+struct gobj{
+    gobj(){printf("gobj constructor!\n");}
+    ~gobj(){printf("gobj destructor!\n");}
+}obj;
+int count = 0;
+int block_count = 0;
+void simple_block(void *) {
+  emscripten_sleep(3000);
+  printf("simple_block! block_count: %d\n", block_count--);
+}
+
+void arg_loop(void *arg) {
+  printf("arg_loop! arg: %s\n", (const char *)arg);
+  if (count % 5 == 0) {
+    printf("loop! count: %d\n", count);
+  }
+  if (block_count > 0) {
+    emscripten_set_main_loop_expected_blockers(block_count);
+    for (int i = 0; i < block_count; i++) {
+      emscripten_push_main_loop_blocker(simple_block, NULL);
+    }
+  }
+  count++;
+}
+
+EM_PORT_API(void) push_block(int number) { block_count = number; }
+
+EM_PORT_API(void) startloop(const char *arg, int mode) {
+  struct obj {
+    obj() { printf("main obj constructor!\n"); }
+    ~obj() { printf("main obj destructor!\n"); }
+  } stack_obj;
+  count = 0;
+  printf("startloop simulate_infinite_loop: %d!\narg: %s", mode, arg);
+  if (mode == 0) {
+    //在mode为0时，startloop()栈会被释放，arg也会被释放，所以需要在全局分配内存
+    if (loop_arg.alloced) {
+      free(loop_arg.ptr);
+    }
+    loop_arg.ptr = malloc(strlen(arg) + 1);
+    strcpy((char *)loop_arg.ptr, arg);
+    loop_arg.alloced = true;
+    emscripten_set_main_loop_arg(arg_loop, (void *)loop_arg.ptr, 1, mode);
+  }else{
+    emscripten_set_main_loop_arg(arg_loop, (void *)arg, 1, mode);
+  }
+  
+
+  printf("startloop end!\n");
+}
+
+EM_PORT_API(void) stoploop() {
+  printf("stoploop!\n");
+  emscripten_cancel_main_loop();
+  if (loop_arg.alloced) {
+    free(loop_arg.ptr);
+    loop_arg.alloced = false;
+  }
+}
+```
+
+```javascript
+//loop_js.js
+Module = {}
+Module.onRuntimeInitialized = function() {
+  Module.setStatus = function(status){
+    console.log(status);
+  }
+  Module.statusMessage = "user defined statusMessage";
+  push_block_js = function(){
+    console.log('[JavaScript] push 2 blocks');
+    _push_block(2);
+  }
+  startloop_js = function(mode){
+    console.log(`[JavaScript] start loop with mode ${mode}`);
+    try{
+        ccall('startloop', null, ['string','number'], ['args from html', mode]);
+    }catch(err){
+        console.log('[JavaScript] start loop error:', err);
+    }
+  }
+  stoploop_js = function(){
+    console.log('[JavaScript] stop loop');
+    _stoploop();
+  }
+}
+```
+
+编译:
+
+```batch
+em++ cpp/src/loop.cpp -o cpp/wasm/loop.js -sEXPORTED_RUNTIME_METHODS=ccall -sASYNCIFY
+```
+
+ 结果：
+
+![f27c9289-2a28-494b-b4b0-63a3055573a9](./images/f27c9289-2a28-494b-b4b0-63a3055573a9.png)
+
+注意
+
+- 在当前版本的Emscripten中(4.0.20)，emcc生成的js文件中，`MainLoop`对象中`updateStatus()`方法中的
+
+```js
+Module['setStatus'](`{message} ({expected - remaining}/{expected})`);
+```
+
+可能应为
+
+```js
+Module['setStatus'](`${message} (${expected - remaining}/${expected})`);
+```
+
+ 需手动修改
+
+- 使用ccall/cwarp向函数传递参数时
+
 
 
 ## 补充
@@ -1217,11 +1641,11 @@ my_func(12)
 typedef void (*em_callback_func)(void)
 ```
 
-#### `em_arg_callback_func`
+#### `em_arg_callback_func` <span id="em_arg_callback_func"> </span>
 
 用于具有单个 `void*` 参数的回调的通用函数指针类型。
 
-此类型用于定义需要传递任意数据的函数回调。例如，[`emscripten_set_main_loop_arg()`](https://emscripten.cn/docs/api_reference/emscripten.h.html#c.emscripten_set_main_loop_arg "emscripten_set_main_loop_arg") 设置用户定义的数据，并在完成时将其传递给此类型的回调。
+此类型用于定义需要传递任意数据的函数回调。例如，`emscripten_set_main_loop_arg()`设置用户定义的数据，并在完成时将其传递给此类型的回调。
 
 定义为
 

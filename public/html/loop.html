@@ -8,9 +8,10 @@
   </title>
 </head>
 <body>
-  <div id="app">
-    <h1>Hello WebAssembly</h1>
-  </div>
-  
+  <button id="push_block" onclick="push_block_js()">push 2 blocks</button>
+  <button id="start_loop" onclick="startloop_js(0)">start loop</button>
+  <button id="start_loop" onclick="startloop_js(1)">start loop and simulate_infinite_loop </button>
+  <button id="stop_loop" onclick="stoploop_js()">stop loop</button>
+  <script src="/code/js/loop_js.js"></script>
   <script src="/code/cpp/wasm/loop.js"></script>
 </body>

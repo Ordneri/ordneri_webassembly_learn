@@ -18,3 +18,6 @@ EM_PORT_API(int) sum(uint8_t * arr, int len){
     }
     return ret;
 }
+EM_PORT_API(void) say(const char * str){
+    emscripten_console_log(str);//ccall调用时printf无效
+}
